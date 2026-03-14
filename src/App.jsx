@@ -19,10 +19,17 @@ const css = `
   ::-webkit-scrollbar-track { background: ${t.surface}; }
   ::-webkit-scrollbar-thumb { background: ${t.border}; border-radius: 2px; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes slideInLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+  @keyframes pageEnter { from { opacity:0; transform:translateX(18px); } to { opacity:1; transform:translateX(0); } }
   .spin { animation: spin 1s linear infinite; display:inline-flex; }
   .fade-in { animation: fadeIn 0.3s ease; }
+  .page-transition { animation: pageEnter 0.28s cubic-bezier(.4,0,.2,1); }
+  .sidebar-open { animation: slideInLeft 0.28s cubic-bezier(.4,0,.2,1); }
+  .sidebar-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:99; backdrop-filter:blur(2px); }
   input:focus, select:focus, textarea:focus { outline: none; border-color: ${t.accent} !important; }
+  @media (max-width: 768px) { .desktop-sidebar { display: none !important; } }
+  @media (min-width: 769px) { .mobile-topbar { display: none !important; } .mobile-sidebar { display: none !important; } }
 `
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -248,7 +255,7 @@ const RegisterForm = ({ onAuth, setMode }) => {
 }
 
 // ─── SIDEBAR ─────────────────────────────────────────────────────────────────
-const Sidebar = ({ page, setPage, membre, onLogout }) => {
+const SidebarContent = ({ page, setPage, membre, onLogout, onClose }) => {
   const role = membre?.role || 'membre'
   const allItems = [
     { id: 'dashboard', label: 'Tableau de bord', icon: 'dashboard', roles: ['admin', 'gestionnaire'] },
@@ -260,30 +267,92 @@ const Sidebar = ({ page, setPage, membre, onLogout }) => {
   ]
   const items = allItems.filter(i => i.roles.includes(role))
 
+  const handleNav = (id) => { setPage(id); if (onClose) onClose() }
+
   return (
-    <div style={{ width: 240, background: t.surface, borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', padding: '24px 16px', minHeight: '100vh', flexShrink: 0 }}>
-      <div style={{ padding: '0 8px 24px', borderBottom: `1px solid ${t.border}`, marginBottom: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Header logo */}
+      <div style={{ padding: '20px 16px 20px', borderBottom: `1px solid ${t.border}` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 38, height: 38, background: t.accent, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}><img src="/logo.jpg" style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:8}} /></div>
+          <div style={{ width: 42, height: 42, borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
+            <img src="/logo.jpg" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </div>
           <div>
-            <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: 14 }}>AWF's Members</div>
+            <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: 14, color: t.text }}>AWF's Members</div>
             <div style={{ color: t.textMuted, fontSize: 11, marginTop: 1 }}>{membre?.nom || 'Utilisateur'}</div>
           </div>
         </div>
         <div style={{ marginTop: 10 }}><Badge status={role} /></div>
       </div>
-      <nav style={{ flex: 1 }}>
-        {items.map(item => (
-          <button key={item.id} onClick={() => setPage(item.id)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: 'none', cursor: 'pointer', marginBottom: 4, background: page === item.id ? `${t.accent}22` : 'transparent', color: page === item.id ? t.accentLight : t.textMuted, fontWeight: page === item.id ? 600 : 400, fontSize: 14 }}>
-            <Icon name={item.icon} size={18} color={page === item.id ? t.accentLight : t.textMuted} />
-            {item.label}
-          </button>
-        ))}
+
+      {/* Nav items */}
+      <nav style={{ flex: 1, padding: '12px 10px' }}>
+        {items.map(item => {
+          const active = page === item.id
+          return (
+            <button key={item.id} onClick={() => handleNav(item.id)} style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+              padding: '11px 14px', borderRadius: 12, border: 'none', cursor: 'pointer',
+              marginBottom: 4,
+              background: active ? `${t.accent}28` : 'transparent',
+              color: active ? t.accentLight : t.textMuted,
+              fontWeight: active ? 600 : 400, fontSize: 14,
+              borderLeft: active ? `3px solid ${t.accent}` : '3px solid transparent',
+              transition: 'all 0.18s ease',
+            }}>
+              <Icon name={item.icon} size={18} color={active ? t.accentLight : t.textMuted} />
+              {item.label}
+            </button>
+          )
+        })}
       </nav>
-      <button onClick={onLogout} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'transparent', color: t.textMuted, fontSize: 14, width: '100%' }}>
-        <Icon name="logout" size={18} color={t.textMuted} /> Déconnexion
-      </button>
+
+      {/* Footer */}
+      <div style={{ padding: '12px 10px', borderTop: `1px solid ${t.border}` }}>
+        <button onClick={onLogout} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'transparent', color: t.textMuted, fontSize: 14, width: '100%', marginBottom: 12 }}>
+          <Icon name="logout" size={18} color={t.textMuted} /> Déconnexion
+        </button>
+        <div style={{ textAlign: 'center', fontSize: 10, color: t.textDim, lineHeight: 1.5 }}>
+          Powered by<br />
+          <span style={{ color: t.accent, fontWeight: 600, fontSize: 11 }}>Olivier Martial KONO</span>
+        </div>
+      </div>
     </div>
+  )
+}
+
+const Sidebar = ({ page, setPage, membre, onLogout, mobileOpen, onMobileClose }) => {
+  return (
+    <>
+      {/* ── DESKTOP sidebar (toujours visible) ── */}
+      <div className="desktop-sidebar" style={{
+        width: 240, background: t.surface, borderRight: `1px solid ${t.border}`,
+        minHeight: '100vh', flexShrink: 0, display: 'flex', flexDirection: 'column'
+      }}>
+        <SidebarContent page={page} setPage={setPage} membre={membre} onLogout={onLogout} />
+      </div>
+
+      {/* ── MOBILE drawer flottant ── */}
+      {mobileOpen && (
+        <>
+          <div className="sidebar-overlay mobile-sidebar" onClick={onMobileClose} />
+          <div className="mobile-sidebar sidebar-open" style={{
+            position: 'fixed', top: 0, left: 0, bottom: 0, width: 270,
+            background: t.surface, zIndex: 100, display: 'flex', flexDirection: 'column',
+            boxShadow: '4px 0 32px rgba(0,0,0,0.5)',
+          }}>
+            {/* Bouton fermer */}
+            <button onClick={onMobileClose} style={{
+              position: 'absolute', top: 14, right: 14, background: t.card,
+              border: `1px solid ${t.border}`, borderRadius: 8, color: t.textMuted,
+              width: 30, height: 30, cursor: 'pointer', fontSize: 16, display: 'flex',
+              alignItems: 'center', justifyContent: 'center', zIndex: 1
+            }}>✕</button>
+            <SidebarContent page={page} setPage={setPage} membre={membre} onLogout={onLogout} onClose={onMobileClose} />
+          </div>
+        </>
+      )}
+    </>
   )
 }
 
@@ -817,6 +886,8 @@ export default function App() {
   const [membre, setMembre] = useState(null)
   const [page, setPage] = useState('dashboard')
   const [checking, setChecking] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [prevPage, setPrevPage] = useState(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -843,11 +914,23 @@ export default function App() {
     setUser(null); setMembre(null); setPage('dashboard')
   }
 
+  const handleSetPage = (p) => {
+    setPrevPage(page)
+    setPage(p)
+    setSidebarOpen(false)
+  }
+
+  const pageTitles = {
+    dashboard: 'Tableau de bord', members: 'Membres',
+    payments: 'Contributions', declare: 'Déclarer un paiement',
+    myaccount: 'Mon compte', report: 'Rapport mensuel',
+  }
+
   if (checking) return (
     <div style={{ minHeight: '100vh', background: t.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <style>{css}</style>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>🌍</div>
+        <img src="/logo.jpg" style={{ width: 64, height: 64, objectFit: 'contain', marginBottom: 16, borderRadius: 12 }} />
         <div style={{ color: t.textMuted }}>Chargement...</div>
       </div>
     </div>
@@ -868,10 +951,63 @@ export default function App() {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: t.bg }}>
       <style>{css}</style>
-      <Sidebar page={page} setPage={setPage} membre={membre} onLogout={handleLogout} />
-      <main style={{ flex: 1, overflowY: 'auto', maxHeight: '100vh' }}>
-        {pages[page] || pages.dashboard}
-      </main>
+
+      {/* ── SIDEBAR (desktop fixe / mobile drawer) ── */}
+      <Sidebar
+        page={page} setPage={handleSetPage}
+        membre={membre} onLogout={handleLogout}
+        mobileOpen={sidebarOpen} onMobileClose={() => setSidebarOpen(false)}
+      />
+
+      {/* ── CONTENU PRINCIPAL ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh', overflow: 'hidden' }}>
+
+        {/* Barre du haut mobile */}
+        <div className="mobile-topbar" style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '0 16px', height: 56, background: t.surface,
+          borderBottom: `1px solid ${t.border}`, flexShrink: 0, position: 'sticky', top: 0, zIndex: 50
+        }}>
+          {/* Bouton hamburger */}
+          <button onClick={() => setSidebarOpen(true)} style={{
+            background: t.card, border: `1px solid ${t.border}`, borderRadius: 10,
+            width: 40, height: 40, cursor: 'pointer', display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: 5
+          }}>
+            <div style={{ width: 18, height: 2, background: t.accent, borderRadius: 2 }} />
+            <div style={{ width: 14, height: 2, background: t.textMuted, borderRadius: 2 }} />
+            <div style={{ width: 18, height: 2, background: t.accent, borderRadius: 2 }} />
+          </button>
+
+          {/* Titre page courante */}
+          <span style={{ fontWeight: 700, fontSize: 15, color: t.text }}>
+            {pageTitles[page] || 'AWF Members'}
+          </span>
+
+          {/* Logo miniature */}
+          <div style={{ width: 36, height: 36, borderRadius: 8, overflow: 'hidden' }}>
+            <img src="/logo.jpg" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </div>
+        </div>
+
+        {/* Page avec transition */}
+        <main key={page} className="page-transition" style={{ flex: 1, overflowY: 'auto' }}>
+          {pages[page] || pages.dashboard}
+        </main>
+
+        {/* ── FOOTER "Powered by" toujours visible ── */}
+        <div style={{
+          textAlign: 'center', padding: '10px 16px',
+          borderTop: `1px solid ${t.border}`,
+          background: t.surface, flexShrink: 0,
+          fontSize: 11, color: t.textDim, letterSpacing: 0.3
+        }}>
+          Powered by{' '}
+          <span style={{ color: t.accent, fontWeight: 700 }}>Olivier Martial KONO</span>
+          {' '}·{' '}
+          <span style={{ color: t.textDim }}>AWF's Members © 2025</span>
+        </div>
+      </div>
     </div>
   )
 }
