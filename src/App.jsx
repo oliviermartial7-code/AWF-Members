@@ -32,6 +32,58 @@ const css = `
   @media (min-width: 769px) { .mobile-topbar { display: none !important; } .mobile-sidebar { display: none !important; } }
 `
 
+// ─── CONSTANTES AWF ──────────────────────────────────────────────────────────
+const OBJECTIFS_AWF = [
+  { nom: 'Cotisation mensuelle',              montant: 2500  },
+  { nom: 'Secours',                           montant: 5000  },
+  { nom: 'Main levée',                        montant: 2500  },
+  { nom: 'On reçoit une équipe',              montant: 5000  },
+  { nom: 'On est reçu par une équipe',        montant: 2500  },
+  { nom: 'Avance sur cotisation',             montant: 0     },
+  { nom: 'Cotisation évènement heureux',      montant: 2500  },
+  { nom: 'Cotisation évènement malheureux',   montant: 5000  },
+  { nom: 'Sanction',                          montant: 0     },
+  { nom: 'Aide',                              montant: 0     },
+]
+
+// Numéros et noms valides pour preuve de paiement
+// Numéros exacts des destinataires autorisés (toutes formes possibles)
+const NUMS_VALIDES = [
+  '699201466',   // Ronald LEUMENI NYA
+  '657790272',   // Laeticia NGO (+237 6 57 79 02 72)
+]
+const NOMS_VALIDES = [
+  'ronald leumeni', 'leumeni nya', 'ronald', 'leumeni',
+  'laeticia ngo', 'ngo laeticia', 'laeticia',
+]
+
+const detectOperateur = (num = '') => {
+  const n = num.replace(/[\s+\-().]/g, '').replace(/^237/, '')
+  if (/^(69|655|656|657|658|659)/.test(n)) return 'Orange Money'
+  if (/^(67|650|651|652|653)/.test(n))     return 'MTN MoMo'
+  return null
+}
+
+const validerPreuve = (texte = '') => {
+  // Nettoyer le texte : enlever espaces, tirets, +, points, parenthèses, indicatif 237
+  const stripped = texte.toLowerCase()
+    .replace(/\+237/g, '')      // retirer indicatif cameroun
+    .replace(/237/g, '')        // retirer indicatif sans +
+    .replace(/[\s\-+.() ]/g, '') // retirer séparateurs
+  const hasNum  = NUMS_VALIDES.some(n => stripped.includes(n))
+  const hasName = NOMS_VALIDES.some(n => texte.toLowerCase().includes(n))
+  return { ok: hasNum || hasName, hasNum, hasName }
+}
+
+// Email simple via mailto (pas de clé nécessaire)
+const notifierEmail = (email, nom, montant, objectif) => {
+  const sujet = encodeURIComponent(`✅ Paiement validé — AWF's Members`)
+  const corps = encodeURIComponent(
+    `Bonjour ${nom},\n\nVotre paiement de ${montant.toLocaleString()} FCFA pour "${objectif}" a été validé avec succès.\n\nMerci pour votre contribution.\n\n— AWF's Members\nPowered by Olivier Martial KONO`
+  )
+  window.open(`mailto:${email}?subject=${sujet}&body=${corps}`, '_blank')
+}
+
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const Icon = ({ name, size = 20, color = 'currentColor' }) => {
   const icons = {
@@ -192,11 +244,20 @@ const LoginForm = ({ onAuth }) => {
 }
 
 const RegisterForm = ({ onAuth, setMode }) => {
-  const [form, setForm] = useState({ nom: '', telephone: '', email: '', nom_utilisateur: '', password: '', confirm: '' })
+  const [form, setForm]       = useState({ nom: '', telephone: '', email: '', nom_utilisateur: '', password: '', confirm: '' })
+  const [photo, setPhoto]     = useState(null)   // fichier
+  const [photoPreview, setPhotoPreview] = useState(null) // URL preview
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError]     = useState('')
   const [success, setSuccess] = useState(false)
+  const photoRef = useRef()
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
+
+  const handlePhotoSelect = (e) => {
+    const file = e.target.files[0]; if (!file) return
+    setPhoto(file)
+    setPhotoPreview(URL.createObjectURL(file))
+  }
 
   const handleRegister = async () => {
     if (!form.nom || !form.email || !form.password || !form.nom_utilisateur)
@@ -207,23 +268,35 @@ const RegisterForm = ({ onAuth, setMode }) => {
       return setError('Le mot de passe doit contenir au moins 6 caractères')
 
     setLoading(true); setError('')
-    // Create auth account
     const { data, error: err } = await supabase.auth.signUp({ email: form.email, password: form.password })
     if (err) { setError(err.message); setLoading(false); return }
 
-    // Create membre record
+    // Upload photo si fournie
+    let photo_url = null
+    if (photo) {
+      try {
+        const tmpId = Date.now()
+        const { error: upErr } = await supabase.storage
+          .from('photos')
+          .upload(`reg_${tmpId}.jpg`, photo, { upsert: true, contentType: photo.type })
+        if (!upErr) {
+          const { data: urlData } = supabase.storage.from('photos').getPublicUrl(`reg_${tmpId}.jpg`)
+          photo_url = urlData?.publicUrl
+        }
+      } catch {}
+    }
+
     const { error: err2 } = await supabase.from('membres').insert({
       nom: form.nom,
       telephone: form.telephone,
       email: form.email,
       nom_utilisateur: form.nom_utilisateur,
       statut: 'Actif',
-      role: 'membre'
+      role: 'membre',
+      photo_url,
     })
     if (err2) { setError(err2.message); setLoading(false); return }
-
-    setSuccess(true)
-    setLoading(false)
+    setSuccess(true); setLoading(false)
   }
 
   if (success) return (
@@ -238,8 +311,27 @@ const RegisterForm = ({ onAuth, setMode }) => {
   return (
     <div className="fade-in" style={{ background: t.card, borderRadius: 16, border: `1px solid ${t.border}`, padding: 28 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+        {/* Photo optionnelle en haut */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, paddingBottom: 4 }}>
+          <div
+            onClick={() => photoRef.current.click()}
+            style={{ width: 80, height: 80, borderRadius: 14, cursor: 'pointer', overflow: 'hidden', border: `2px dashed ${photoPreview ? t.accent : t.border}`, background: t.surface, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
+          >
+            {photoPreview
+              ? <img src={photoPreview} alt="photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 24 }}>📷</div>
+                  <div style={{ color: t.textDim, fontSize: 10, marginTop: 4 }}>Photo</div>
+                </div>
+            }
+          </div>
+          <div style={{ color: t.textDim, fontSize: 11 }}>Photo de profil — facultatif (4×4 ou selfie)</div>
+          <input ref={photoRef} type="file" accept="image/*" capture="user" onChange={handlePhotoSelect} style={{ display: 'none' }} />
+        </div>
+
         <Field label="Nom complet *"><Input value={form.nom} onChange={set('nom')} placeholder="Jean Dupont" /></Field>
-        <Field label="Téléphone"><Input value={form.telephone} onChange={set('telephone')} placeholder="+225 07 00 00 00" /></Field>
+        <Field label="Téléphone"><Input value={form.telephone} onChange={set('telephone')} placeholder="+237 6 99 00 00 00" /></Field>
         <Field label="Email *"><Input type="email" value={form.email} onChange={set('email')} placeholder="jean@email.com" /></Field>
         <Field label="Nom d'utilisateur *"><Input value={form.nom_utilisateur} onChange={set('nom_utilisateur')} placeholder="jean_dupont" /></Field>
         <Field label="Mot de passe * (min. 6 caractères)"><Input type="password" value={form.password} onChange={set('password')} /></Field>
@@ -528,64 +620,110 @@ const Contributions = () => {
   const [contribs, setContribs] = useState([])
   const [filter, setFilter] = useState('Tous')
   const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(null)
 
   const load = async () => {
-    const { data } = await supabase.from('contributions').select('*, membres(nom), objectifs(nom)').order('created_at', { ascending: false })
+    const { data } = await supabase
+      .from('contributions')
+      .select('*, membres(nom, email), objectifs(nom)')
+      .order('created_at', { ascending: false })
     setContribs(data || [])
     setLoading(false)
   }
   useEffect(() => { load() }, [])
 
-  const validate = async (id) => {
-    await supabase.from('contributions').update({ statut: 'Valide' }).eq('id', id)
+  const validate = async (c) => {
+    await supabase.from('contributions').update({ statut: 'Valide' }).eq('id', c.id)
+    // Notifier le membre par email
+    if (c.membres?.email) {
+      notifierEmail(c.membres.email, c.membres.nom, c.montant, c.objectifs?.nom || 'contribution')
+    }
     load()
   }
 
-  const filtered = filter === 'Tous' ? contribs : contribs.filter(c => c.statut === filter || c.statut === filter.replace('é', 'e'))
+  const filtered = filter === 'Tous' ? contribs : contribs.filter(c => c.statut === filter || c.statut === filter.replace('é','e'))
 
   if (loading) return <div style={{ padding: 40, color: t.textMuted }}>Chargement...</div>
 
   return (
-    <div className="fade-in" style={{ padding: 32, maxWidth: 1050 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+    <div className="fade-in" style={{ padding: '24px 16px', maxWidth: 1050 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 700 }}>Contributions</h2>
+          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 700 }}>Contributions</h2>
           <p style={{ color: t.textMuted, fontSize: 13, marginTop: 4 }}>{contribs.length} transactions</p>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {['Tous', 'Valide', 'En attente', 'A verifier'].map(s => (
-            <button key={s} onClick={() => setFilter(s)} style={{ padding: '8px 14px', background: filter === s ? t.accent : 'transparent', border: `1px solid ${filter === s ? t.accent : t.border}`, borderRadius: 8, color: filter === s ? '#fff' : t.textMuted, fontSize: 13, fontWeight: filter === s ? 600 : 400, cursor: 'pointer' }}>
+            <button key={s} onClick={() => setFilter(s)} style={{ padding: '7px 13px', background: filter === s ? t.accent : 'transparent', border: `1px solid ${filter === s ? t.accent : t.border}`, borderRadius: 8, color: filter === s ? '#fff' : t.textMuted, fontSize: 12, fontWeight: filter === s ? 600 : 400, cursor: 'pointer' }}>
               {s === 'Valide' ? 'Validé' : s === 'A verifier' ? 'À vérifier' : s}
             </button>
           ))}
         </div>
       </div>
+
       <div style={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 16, overflow: 'hidden' }}>
+        {/* Vue mobile: cartes */}
+        <div style={{ display: 'none' }} className="mobile-cards">
+          {filtered.map(c => (
+            <div key={c.id} style={{ padding: 16, borderBottom: `1px solid ${t.border}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontWeight: 600 }}>{c.membres?.nom}</span>
+                <Badge status={c.statut} />
+              </div>
+              <div style={{ color: t.textMuted, fontSize: 12 }}>{c.objectifs?.nom} • {c.montant?.toLocaleString()} F • {c.date}</div>
+              {c.note && <div style={{ color: t.textMuted, fontSize: 12, marginTop: 4, fontStyle: 'italic' }}>📝 {c.note}</div>}
+              {c.preuve_texte && <div style={{ color: t.textMuted, fontSize: 11, marginTop: 4 }}>💬 {c.preuve_texte.slice(0,80)}…</div>}
+              {c.statut !== 'Valide' && c.statut !== 'Validé' && (
+                <Btn variant="success" onClick={() => validate(c)} style={{ marginTop: 10, padding: '5px 12px', fontSize: 12 }}>
+                  <Icon name="check" size={13} color={t.green} /> Valider + envoyer email
+                </Btn>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Vue desktop: tableau */}
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: t.surface }}>
-              {['Membre', 'Objectif', 'Montant', 'Mode', 'Date', 'Statut', 'Action'].map(h => (
-                <th key={h} style={{ color: t.textMuted, fontSize: 11, textAlign: 'left', padding: '12px 14px', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase' }}>{h}</th>
+              {['Membre', 'Objectif', 'Montant', 'Mode', 'Date', 'Notes / Preuve', 'Statut', 'Action'].map(h => (
+                <th key={h} style={{ color: t.textMuted, fontSize: 11, textAlign: 'left', padding: '12px 12px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {filtered.map(c => (
-              <tr key={c.id} style={{ borderTop: `1px solid ${t.border}` }}>
-                <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 500 }}>{c.membres?.nom || '—'}</td>
-                <td style={{ padding: '12px 14px', color: t.textMuted, fontSize: 12 }}>{c.objectifs?.nom || '—'}</td>
-                <td style={{ padding: '12px 14px', color: t.accentLight, fontSize: 13, fontWeight: 600 }}>{c.montant?.toLocaleString()} F</td>
-                <td style={{ padding: '12px 14px', color: t.textMuted, fontSize: 12 }}>{c.mode_paiement}</td>
-                <td style={{ padding: '12px 14px', color: t.textMuted, fontSize: 12 }}>{c.date}</td>
-                <td style={{ padding: '12px 14px' }}><Badge status={c.statut} /></td>
-                <td style={{ padding: '12px 14px' }}>
-                  {c.statut !== 'Valide' && c.statut !== 'Validé' && (
-                    <Btn variant="success" onClick={() => validate(c.id)} style={{ padding: '5px 12px', fontSize: 12 }}>
-                      <Icon name="check" size={13} color={t.green} /> Valider
-                    </Btn>
-                  )}
-                </td>
-              </tr>
+              <>
+                <tr key={c.id} style={{ borderTop: `1px solid ${t.border}`, cursor: c.preuve_texte ? 'pointer' : 'default' }}
+                    onClick={() => setExpanded(expanded === c.id ? null : c.id)}>
+                  <td style={{ padding: '12px 12px', fontSize: 13, fontWeight: 500 }}>{c.membres?.nom || '—'}</td>
+                  <td style={{ padding: '12px 12px', color: t.textMuted, fontSize: 12 }}>{c.objectifs?.nom || '—'}</td>
+                  <td style={{ padding: '12px 12px', color: t.accentLight, fontSize: 13, fontWeight: 600 }}>{c.montant?.toLocaleString()} F</td>
+                  <td style={{ padding: '12px 12px', color: t.textMuted, fontSize: 12 }}>{c.mode_paiement}</td>
+                  <td style={{ padding: '12px 12px', color: t.textMuted, fontSize: 12 }}>{c.date}</td>
+                  <td style={{ padding: '12px 12px', fontSize: 11, color: t.textMuted, maxWidth: 180 }}>
+                    {c.note && <div style={{ marginBottom: 2 }}>📝 {c.note}</div>}
+                    {c.preuve_texte && <div style={{ color: t.accent, fontSize: 11 }}>💬 Texte SMS ▾</div>}
+                  </td>
+                  <td style={{ padding: '12px 12px' }}><Badge status={c.statut} /></td>
+                  <td style={{ padding: '12px 12px' }}>
+                    {c.statut !== 'Valide' && c.statut !== 'Validé' && (
+                      <Btn variant="success" onClick={e => { e.stopPropagation(); validate(c) }} style={{ padding: '5px 10px', fontSize: 11 }}>
+                        <Icon name="check" size={12} color={t.green} /> Valider
+                      </Btn>
+                    )}
+                  </td>
+                </tr>
+                {expanded === c.id && c.preuve_texte && (
+                  <tr key={`${c.id}-exp`} style={{ background: `${t.surface}99` }}>
+                    <td colSpan={8} style={{ padding: '10px 20px' }}>
+                      <div style={{ background: t.bg, border: `1px solid ${t.border}`, borderRadius: 8, padding: '12px 14px', fontSize: 12, color: t.text, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                        💬 Texte SMS fourni :<br/>{c.preuve_texte}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
             ))}
           </tbody>
         </table>
@@ -597,6 +735,291 @@ const Contributions = () => {
 
 // ─── DECLARE PAGE ─────────────────────────────────────────────────────────────
 const Declare = ({ membreId }) => {
+  const [membres, setMembres]       = useState([])
+  const [form, setForm]             = useState({
+    membre_id: membreId || '', objectif_nom: '', montant: '',
+    date: new Date().toISOString().split('T')[0], mode_paiement: 'Mobile Money', note: ''
+  })
+  const [preuveMode, setPreuveMode] = useState('image') // 'image' | 'texte'
+  const [image, setImage]           = useState(null)
+  const [imageB64, setImageB64]     = useState(null)
+  const [preuveTexte, setPreuveTexte] = useState('')
+  const [ocr, setOcr]               = useState(null)
+  const [ocrLoading, setOcrLoading] = useState(false)
+  const [validationPreuve, setValidationPreuve] = useState(null)
+  const [loading, setLoading]       = useState(false)
+  const [sent, setSent]             = useState(false)
+  const fileRef = useRef()
+
+  useEffect(() => {
+    supabase.from('membres').select('id, nom').then(({ data }) => setMembres(data || []))
+  }, [])
+
+  const handleFile = (e) => {
+    const file = e.target.files[0]; if (!file) return
+    setImage(URL.createObjectURL(file))
+    setOcr(null); setValidationPreuve(null)
+    const reader = new FileReader()
+    reader.onload = ev => setImageB64(ev.target.result.split(',')[1])
+    reader.readAsDataURL(file)
+  }
+
+  // Vérifier texte SMS en temps réel
+  const handleTexteChange = (val) => {
+    setPreuveTexte(val)
+    if (val.length > 10) {
+      const result = validerPreuve(val)
+      setValidationPreuve(result)
+      // Détecter opérateur
+      const numMatch = val.match(/\b(6[579]\d{7}|6[50-3]\d{7})\b/)
+      if (numMatch) {
+        const op = detectOperateur(numMatch[0])
+        if (op) setForm(f => ({ ...f, mode_paiement: op }))
+      }
+    }
+  }
+
+  const analyzeOCR = async () => {
+    if (preuveMode === 'image' && !imageB64) return
+    if (preuveMode === 'texte' && !preuveTexte) return
+    setOcrLoading(true)
+    try {
+      let messages
+      if (preuveMode === 'image') {
+        messages = [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageB64 } },
+          { type: 'text', text: `Analyse cette capture de paiement Mobile Money camerounais.
+Vérifie si le destinataire contient "Ronald LEUMENI NYA" (699201466) ou "NGO Laeticia" / "Laeticia NGO" (657790272 / +237657790272).
+Retourne UNIQUEMENT du JSON sans markdown:
+{"montant": nombre|null, "devise": "FCFA", "reference": string|null, "expediteur": string|null, "recepteur": string|null, "numero_recepteur": string|null, "date": string|null, "mode": "Orange Money"|"MTN MoMo"|"Cash"|"Autre", "destinataire_valide": true|false, "confiance": "haute"|"moyenne"|"faible"}` }
+        ]}]
+      } else {
+        messages = [{ role: 'user', content:
+          `Analyse ce message SMS de confirmation de paiement Mobile Money camerounais:\n\n${preuveTexte}\n\n` +
+          `Vérifie si le destinataire contient "Ronald LEUMENI NYA" (699201466) ou "NGO Laeticia" / "Laeticia NGO" (657790272).\n` +
+          `Retourne UNIQUEMENT du JSON sans markdown:\n{"montant": nombre|null, "devise": "FCFA", "reference": string|null, "expediteur": string|null, "recepteur": string|null, "numero_recepteur": string|null, "date": string|null, "mode": "Orange Money"|"MTN MoMo"|"Cash"|"Autre", "destinataire_valide": true|false, "confiance": "haute"|"moyenne"|"faible"}`
+        }]
+      }
+
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 600, messages })
+      })
+      const data = await resp.json()
+      const text = (data.content?.[0]?.text || '{}').replace(/```json|```/g, '').trim()
+      const parsed = JSON.parse(text)
+      setOcr(parsed)
+
+      // Valider preuve (double vérification)
+      const textToCheck = preuveMode === 'texte' ? preuveTexte : (parsed.recepteur || '') + ' ' + (parsed.numero_recepteur || '')
+      const v = validerPreuve(textToCheck)
+      setValidationPreuve({ ok: v.ok || parsed.destinataire_valide })
+
+      if (parsed.montant && !form.montant) setForm(f => ({ ...f, montant: String(parsed.montant), mode_paiement: parsed.mode || 'Mobile Money' }))
+      if (parsed.mode) setForm(f => ({ ...f, mode_paiement: parsed.mode }))
+    } catch { setOcr({ confiance: 'faible', destinataire_valide: false }) }
+    setOcrLoading(false)
+  }
+
+  const submit = async () => {
+    if (!form.membre_id || !form.objectif_nom || !form.montant) return
+    setLoading(true)
+
+    const montant     = Number(form.montant)
+    const ocrMontant  = ocr?.montant
+    const coherent    = !ocrMontant || Math.abs(montant - ocrMontant) < 10
+    const preuveOk    = validationPreuve?.ok
+
+    // Statut selon preuve
+    let statut = 'En attente'
+    if (preuveMode === 'image' && imageB64) {
+      statut = (coherent && preuveOk) ? 'Valide' : 'A verifier'
+    } else if (preuveMode === 'texte' && preuveTexte) {
+      statut = preuveOk ? 'Valide' : 'A verifier'
+    }
+
+    // Chercher ou créer l'objectif
+    let { data: obj } = await supabase.from('objectifs').select('id').eq('nom', form.objectif_nom).single()
+    if (!obj) {
+      const montantCible = OBJECTIFS_AWF.find(o => o.nom === form.objectif_nom)?.montant || 0
+      const { data: newObj } = await supabase.from('objectifs').insert({ nom: form.objectif_nom, montant_cible: montantCible, est_fixe: montantCible > 0 }).select('id').single()
+      obj = newObj
+    }
+
+    await supabase.from('contributions').insert({
+      membre_id:     form.membre_id,
+      objectif_id:   obj?.id,
+      montant,
+      date:          form.date,
+      mode_paiement: form.mode_paiement,
+      statut,
+      note:          form.note,
+      preuve_texte:  preuveMode === 'texte' ? preuveTexte : null,
+    })
+
+    setLoading(false); setSent(true)
+    setTimeout(() => {
+      setSent(false)
+      setForm({ membre_id: membreId || '', objectif_nom: '', montant: '', date: new Date().toISOString().split('T')[0], mode_paiement: 'Mobile Money', note: '' })
+      setImage(null); setImageB64(null); setPreuveTexte(''); setOcr(null); setValidationPreuve(null)
+    }, 3000)
+  }
+
+  if (sent) return (
+    <div className="fade-in" style={{ padding: 32, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 400 }}>
+      <div style={{ width: 70, height: 70, background: `${t.green}22`, borderRadius: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+        <Icon name="check" size={32} color={t.green} />
+      </div>
+      <h3 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22 }}>Déclaration envoyée !</h3>
+      <p style={{ color: t.textMuted, marginTop: 8 }}>Votre paiement a été enregistré.</p>
+    </div>
+  )
+
+  const objActuel = OBJECTIFS_AWF.find(o => o.nom === form.objectif_nom)
+
+  return (
+    <div className="fade-in" style={{ padding: '24px 16px', maxWidth: 680 }}>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 700 }}>Déclarer un paiement</h2>
+        <p style={{ color: t.textMuted, fontSize: 13, marginTop: 4 }}>Enregistrez votre contribution avec preuve</p>
+      </div>
+
+      <div style={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 16, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {/* Membre + Objectif */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <Field label="Membre *">
+            <select value={form.membre_id} onChange={e => setForm({...form, membre_id: e.target.value})}
+              style={{ width:'100%', padding:'11px 14px', background:t.surface, border:`1px solid ${t.border}`, borderRadius:8, color:t.text, fontSize:14 }}>
+              <option value="">Sélectionner...</option>
+              {membres.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+            </select>
+          </Field>
+          <Field label="Type de cotisation *">
+            <select value={form.objectif_nom} onChange={e => {
+              const obj = OBJECTIFS_AWF.find(o => o.nom === e.target.value)
+              setForm({...form, objectif_nom: e.target.value, montant: obj?.montant > 0 ? String(obj.montant) : form.montant})
+            }} style={{ width:'100%', padding:'11px 14px', background:t.surface, border:`1px solid ${t.border}`, borderRadius:8, color:t.text, fontSize:14 }}>
+              <option value="">Sélectionner...</option>
+              {OBJECTIFS_AWF.map(o => <option key={o.nom} value={o.nom}>{o.nom}{o.montant > 0 ? ` — ${o.montant.toLocaleString()} F` : ''}</option>)}
+            </select>
+          </Field>
+        </div>
+
+        {/* Montant + Date + Mode */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+          <Field label="Montant (FCFA) *">
+            <Input type="number" value={form.montant} onChange={e => setForm({...form, montant: e.target.value})}
+              placeholder={objActuel?.montant > 0 ? objActuel.montant : '5000'} />
+          </Field>
+          <Field label="Date">
+            <Input type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+          </Field>
+          <Field label="Opérateur">
+            <select value={form.mode_paiement} onChange={e => setForm({...form, mode_paiement: e.target.value})}
+              style={{ width:'100%', padding:'11px 14px', background:t.surface, border:`1px solid ${t.border}`, borderRadius:8, color:t.text, fontSize:14 }}>
+              <option>Mobile Money</option><option>Orange Money</option><option>MTN MoMo</option><option>Cash</option>
+            </select>
+          </Field>
+        </div>
+
+        {/* Note */}
+        <Field label="Note / Détails (optionnel)">
+          <Input value={form.note} onChange={e => setForm({...form, note: e.target.value})} placeholder="Ex: cotisation mars 2025, match vs ABC..." />
+        </Field>
+
+        {/* Choix du mode de preuve */}
+        <div>
+          <label style={{ color: t.textMuted, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 8 }}>Preuve de paiement</label>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            {[['image', '📷 Capture d\'écran'], ['texte', '💬 Texte SMS']].map(([m, l]) => (
+              <button key={m} onClick={() => setPreuveMode(m)} style={{
+                padding: '8px 16px', borderRadius: 10, border: `1px solid ${preuveMode === m ? t.accent : t.border}`,
+                background: preuveMode === m ? `${t.accent}22` : 'transparent',
+                color: preuveMode === m ? t.accentLight : t.textMuted, fontSize: 13, cursor: 'pointer', fontWeight: preuveMode === m ? 600 : 400
+              }}>{l}</button>
+            ))}
+          </div>
+
+          {/* Mode image */}
+          {preuveMode === 'image' && (
+            <>
+              <div onClick={() => fileRef.current.click()} style={{ border: `2px dashed ${image ? t.accent : t.border}`, borderRadius: 12, padding: 20, textAlign: 'center', cursor: 'pointer', background: image ? `${t.accent}08` : 'transparent' }}>
+                {image ? (
+                  <>
+                    <img src={image} alt="preuve" style={{ maxHeight: 150, maxWidth: '100%', borderRadius: 8, marginBottom: 8 }} />
+                    <div style={{ color: t.accent, fontSize: 12 }}>Image chargée — cliquez pour changer</div>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="upload" size={24} color={t.textDim} />
+                    <div style={{ color: t.textMuted, fontSize: 13, marginTop: 8 }}>Glissez ou cliquez pour uploader la capture</div>
+                    <div style={{ color: t.textDim, fontSize: 11, marginTop: 4 }}>Destinataire : Ronald LEUMENI NYA (699201466) ou Laeticia NGO (657790272)</div>
+                  </>
+                )}
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
+            </>
+          )}
+
+          {/* Mode texte */}
+          {preuveMode === 'texte' && (
+            <>
+              <textarea value={preuveTexte} onChange={e => handleTexteChange(e.target.value)}
+                placeholder={`Collez ici le texte du SMS de confirmation.\nEx: Vous avez envoye 5000 FCFA a Ronald LEUMENI NYA (699201466). Ref: TXN123456`}
+                rows={5} style={{ width: '100%', padding: '11px 14px', background: t.surface, border: `1px solid ${validationPreuve ? (validationPreuve.ok ? t.green : t.red) : t.border}`, borderRadius: 8, color: t.text, fontSize: 13, resize: 'vertical', lineHeight: 1.5 }} />
+              {preuveTexte.length > 10 && validationPreuve && (
+                <div className="fade-in" style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: validationPreuve.ok ? `${t.green}15` : `${t.red}15`, border: `1px solid ${validationPreuve.ok ? t.green : t.red}33` }}>
+                  <span style={{ color: validationPreuve.ok ? t.green : t.red, fontSize: 13 }}>
+                    {validationPreuve.ok ? '✅ Destinataire reconnu — preuve valide' : '⚠️ Destinataire non reconnu — le SMS doit mentionner Ronald LEUMENI NYA (699201466) ou Laeticia NGO (657790272 / +237 6 57 79 02 72)'}
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Bouton analyse IA */}
+        {((preuveMode === 'image' && imageB64) || (preuveMode === 'texte' && preuveTexte.length > 20)) && (
+          <Btn variant="ghost" onClick={analyzeOCR} disabled={ocrLoading}>
+            {ocrLoading ? <span className="spin"><Icon name="loader" size={16} /></span> : <Icon name="scan" size={16} />}
+            {ocrLoading ? 'Analyse IA en cours...' : '🔍 Analyser la preuve avec l\'IA'}
+          </Btn>
+        )}
+
+        {/* Résultat OCR */}
+        {ocr && (
+          <div className="fade-in" style={{ background: t.surface, border: `1px solid ${ocr.destinataire_valide ? t.green : t.yellow}55`, borderRadius: 12, padding: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: ocr.destinataire_valide ? t.green : t.yellow }}>
+              {ocr.destinataire_valide ? '✅ Destinataire validé par l\'IA' : '⚠️ Destinataire non confirmé — vérification manuelle requise'}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+              {[
+                ['Montant', ocr.montant ? `${ocr.montant?.toLocaleString()} F` : '—'],
+                ['Mode', ocr.mode || '—'],
+                ['Référence', ocr.reference || '—'],
+                ['Expéditeur', ocr.expediteur || '—'],
+                ['Récepteur', ocr.recepteur || '—'],
+                ['Confiance', ocr.confiance || '—'],
+              ].map(([k, v]) => (
+                <div key={k}>
+                  <div style={{ color: t.textMuted, fontSize: 10, textTransform: 'uppercase', marginBottom: 2 }}>{k}</div>
+                  <div style={{ fontSize: 12, fontWeight: 500 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <Btn onClick={submit} disabled={loading || !form.membre_id || !form.objectif_nom || !form.montant} style={{ alignSelf: 'flex-start' }}>
+          {loading ? <span className="spin"><Icon name="loader" size={16} color="#fff" /></span> : <Icon name="send" size={16} color="#fff" />}
+          {loading ? 'Envoi...' : 'Envoyer la déclaration'}
+        </Btn>
+      </div>
+    </div>
+  )
+}
   const [membres, setMembres] = useState([])
   const [objectifs, setObjectifs] = useState([])
   const [form, setForm] = useState({ membre_id: membreId || '', objectif_id: '', montant: '', date: new Date().toISOString().split('T')[0], mode_paiement: 'Cash', note: '' })
@@ -761,23 +1184,68 @@ const Declare = ({ membreId }) => {
 
 // ─── MY ACCOUNT ───────────────────────────────────────────────────────────────
 const MyAccount = ({ membre }) => {
-  const [contribs, setContribs] = useState([])
+  const [contribs, setContribs]   = useState([])
+  const [photoUrl, setPhotoUrl]   = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const photoRef = useRef()
+
   useEffect(() => {
-    if (membre?.id) supabase.from('contributions').select('*, objectifs(nom)').eq('membre_id', membre.id).order('created_at', { ascending: false }).then(({ data }) => setContribs(data || []))
+    if (membre?.id) {
+      supabase.from('contributions').select('*, objectifs(nom)')
+        .eq('membre_id', membre.id).order('created_at', { ascending: false })
+        .then(({ data }) => setContribs(data || []))
+    }
+    // Charger photo de profil
+    if (membre?.photo_url) setPhotoUrl(membre.photo_url)
+    else {
+      supabase.storage.from('photos').getPublicUrl(`membre_${membre?.id}.jpg`)
+        .then(({ data }) => { if (data?.publicUrl) setPhotoUrl(data.publicUrl + '?t=' + Date.now()) })
+    }
   }, [membre])
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files[0]; if (!file) return
+    setUploading(true)
+    try {
+      const { error } = await supabase.storage
+        .from('photos')
+        .upload(`membre_${membre.id}.jpg`, file, { upsert: true, contentType: file.type })
+      if (!error) {
+        const { data } = supabase.storage.from('photos').getPublicUrl(`membre_${membre.id}.jpg`)
+        const url = data.publicUrl + '?t=' + Date.now()
+        setPhotoUrl(url)
+        await supabase.from('membres').update({ photo_url: url }).eq('id', membre.id)
+      }
+    } catch {}
+    setUploading(false)
+  }
 
   const total = contribs.filter(c => c.statut === 'Valide' || c.statut === 'Validé').reduce((s, c) => s + c.montant, 0)
 
   return (
-    <div className="fade-in" style={{ padding: 32, maxWidth: 700 }}>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 700, marginBottom: 24 }}>Mon compte</h2>
-      <div style={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 16, padding: 24, marginBottom: 24 }}>
+    <div className="fade-in" style={{ padding: '24px 16px', maxWidth: 700 }}>
+      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 700, marginBottom: 20 }}>Mon compte</h2>
+      <div style={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 16, padding: 24, marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-          <div style={{ width: 56, height: 56, background: `${t.accent}33`, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', color: t.accent, fontWeight: 700, fontSize: 22 }}>{membre?.nom?.charAt(0)}</div>
+          {/* Avatar cliquable */}
+          <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => photoRef.current.click()}>
+            {photoUrl ? (
+              <img src={photoUrl} alt="avatar" style={{ width: 64, height: 64, borderRadius: 14, objectFit: 'cover', border: `2px solid ${t.accent}` }} />
+            ) : (
+              <div style={{ width: 64, height: 64, background: `${t.accent}33`, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', color: t.accent, fontWeight: 700, fontSize: 26, border: `2px dashed ${t.accent}55` }}>
+                {membre?.nom?.charAt(0) || '?'}
+              </div>
+            )}
+            <div style={{ position: 'absolute', bottom: -4, right: -4, background: t.accent, borderRadius: 6, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {uploading ? <span className="spin" style={{ transform: 'scale(0.6)' }}><Icon name="loader" size={12} color="#fff" /></span> : <Icon name="upload" size={11} color="#fff" />}
+            </div>
+            <input ref={photoRef} type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} />
+          </div>
           <div>
             <div style={{ fontWeight: 600, fontSize: 16 }}>{membre?.nom}</div>
             <div style={{ color: t.textMuted, fontSize: 13 }}>@{membre?.nom_utilisateur}</div>
             <div style={{ color: t.textMuted, fontSize: 13 }}>{membre?.email}</div>
+            <div style={{ color: t.textDim, fontSize: 11, marginTop: 2 }}>Cliquez sur la photo pour changer</div>
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -786,20 +1254,23 @@ const MyAccount = ({ membre }) => {
         </div>
       </div>
       <div style={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 16, overflow: 'hidden' }}>
-        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${t.border}` }}>
+        <div style={{ padding: '14px 18px', borderBottom: `1px solid ${t.border}` }}>
           <h3 style={{ fontSize: 15, fontWeight: 600 }}>Historique de mes contributions</h3>
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr style={{ background: t.surface }}>
-            {['Objectif', 'Montant', 'Date', 'Statut'].map(h => <th key={h} style={{ color: t.textMuted, fontSize: 11, textAlign: 'left', padding: '12px 16px', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>)}
+            {['Objectif', 'Montant', 'Note', 'Date', 'Statut'].map(h =>
+              <th key={h} style={{ color: t.textMuted, fontSize: 11, textAlign: 'left', padding: '11px 14px', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>
+            )}
           </tr></thead>
           <tbody>
             {contribs.map(c => (
               <tr key={c.id} style={{ borderTop: `1px solid ${t.border}` }}>
-                <td style={{ padding: '12px 16px', fontSize: 13 }}>{c.objectifs?.nom}</td>
-                <td style={{ padding: '12px 16px', color: t.accentLight, fontWeight: 600, fontSize: 13 }}>{c.montant?.toLocaleString()} F</td>
-                <td style={{ padding: '12px 16px', color: t.textMuted, fontSize: 12 }}>{c.date}</td>
-                <td style={{ padding: '12px 16px' }}><Badge status={c.statut} /></td>
+                <td style={{ padding: '11px 14px', fontSize: 13 }}>{c.objectifs?.nom}</td>
+                <td style={{ padding: '11px 14px', color: t.accentLight, fontWeight: 600, fontSize: 13 }}>{c.montant?.toLocaleString()} F</td>
+                <td style={{ padding: '11px 14px', color: t.textMuted, fontSize: 12 }}>{c.note || <span style={{ color: t.textDim }}>—</span>}</td>
+                <td style={{ padding: '11px 14px', color: t.textMuted, fontSize: 12 }}>{c.date}</td>
+                <td style={{ padding: '11px 14px' }}><Badge status={c.statut} /></td>
               </tr>
             ))}
           </tbody>
@@ -811,29 +1282,69 @@ const MyAccount = ({ membre }) => {
 }
 
 // ─── REPORT ───────────────────────────────────────────────────────────────────
+const dernierVendrediDuMois = (annee, mois) => {
+  // mois: 0-indexé
+  const derJour = new Date(annee, mois + 1, 0)
+  const decal = derJour.getDay() === 0 ? 1 : derJour.getDay() >= 5 ? derJour.getDay() - 5 : derJour.getDay() + 2
+  derJour.setDate(derJour.getDate() - (derJour.getDay() === 5 ? 0 : derJour.getDay() === 6 ? 1 : derJour.getDay() + 2))
+  // Recompute properly
+  let d = new Date(annee, mois + 1, 0)
+  while (d.getDay() !== 5) d.setDate(d.getDate() - 1)
+  return d
+}
+
 const Report = () => {
-  const [report, setReport] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [report, setReport]       = useState(null)
+  const [loading, setLoading]     = useState(false)
+  const [sending, setSending]     = useState(false)
+
+  const now       = new Date()
+  const vendredi  = dernierVendrediDuMois(now.getFullYear(), now.getMonth())
+  const joursAvant = Math.ceil((vendredi - now) / (1000 * 60 * 60 * 24))
+  const estAujourdhuiVendredi = vendredi.toDateString() === now.toDateString()
 
   const generate = async () => {
     setLoading(true)
-    const { data: membres } = await supabase.from('membres').select('*, contributions(montant, statut, objectifs(nom))')
-    const mois = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+    const { data: membres } = await supabase
+      .from('membres')
+      .select('*, contributions(montant, statut, note, objectifs(nom))')
+    const mois = now.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
     const data = membres?.map(m => {
       const valides = (m.contributions || []).filter(c => c.statut === 'Valide' || c.statut === 'Validé')
       const totalPaye = valides.reduce((s, c) => s + c.montant, 0)
-      return { ...m, totalPaye, aJour: totalPaye >= 2500 }
+      const notes = valides.map(c => c.note).filter(Boolean).join(', ')
+      const details = valides.map(c => `${c.objectifs?.nom || '—'}: ${c.montant?.toLocaleString()} F${c.note ? ` (${c.note})` : ''}`).join(' | ')
+      return { ...m, totalPaye, aJour: totalPaye >= 2500, notes, details }
     }) || []
     const totalCollecte = data.reduce((s, m) => s + m.totalPaye, 0)
     setReport({ membres: data, totalCollecte, totalAttendu: data.length * 2500, mois })
     setLoading(false)
   }
 
+  const envoyerRappels = async () => {
+    if (!report) return
+    setSending(true)
+    for (const m of report.membres) {
+      if (!m.email) continue
+      const sujet = encodeURIComponent(`📊 Rapport mensuel AWF — ${report.mois}`)
+      const manque = Math.max(0, 2500 - m.totalPaye)
+      const corps = encodeURIComponent(
+        m.aJour
+          ? `Bonjour ${m.nom},\n\n✅ Vous êtes à jour pour ${report.mois} !\nTotal versé : ${m.totalPaye.toLocaleString()} FCFA\n${m.details ? `Détails : ${m.details}` : ''}\n\nMerci pour votre fidélité.\n\n— AWF's Members\nPowered by Olivier Martial KONO`
+          : `Bonjour ${m.nom},\n\n⚠️ Il vous manque ${manque.toLocaleString()} FCFA pour ${report.mois}.\nDéjà versé : ${m.totalPaye.toLocaleString()} FCFA\nRestant : ${manque.toLocaleString()} FCFA\n\nMerci de régulariser au plus vite.\n\n— AWF's Members\nPowered by Olivier Martial KONO`
+      )
+      window.open(`mailto:${m.email}?subject=${sujet}&body=${corps}`, '_blank')
+      await new Promise(r => setTimeout(r, 300)) // délai entre ouvertures
+    }
+    setSending(false)
+  }
+
   return (
-    <div className="fade-in" style={{ padding: 32, maxWidth: 900 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+    <div className="fade-in" style={{ padding: '24px 16px', maxWidth: 960 }}>
+      {/* En-tête */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 700 }}>Rapport mensuel</h2>
+          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 700 }}>Rapport mensuel</h2>
           <p style={{ color: t.textMuted, fontSize: 13, marginTop: 4 }}>État financier de l'association</p>
         </div>
         <Btn onClick={generate} disabled={loading}>
@@ -841,34 +1352,62 @@ const Report = () => {
           {loading ? 'Génération...' : 'Générer le rapport'}
         </Btn>
       </div>
+
+      {/* Rappel dernier vendredi */}
+      <div style={{ background: estAujourdhuiVendredi ? `${t.green}18` : `${t.accent}12`, border: `1px solid ${estAujourdhuiVendredi ? t.green : t.accent}44`, borderRadius: 12, padding: '12px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span style={{ fontSize: 20 }}>{estAujourdhuiVendredi ? '📅' : '⏰'}</span>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: estAujourdhuiVendredi ? t.green : t.accentLight }}>
+            {estAujourdhuiVendredi ? "C'est aujourd'hui le dernier vendredi du mois — envoyez les rappels !" : `Prochain envoi automatique : ${vendredi.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} (dans ${joursAvant} jour${joursAvant > 1 ? 's' : ''})`}
+          </div>
+          <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>Rappels envoyés par email chaque dernier vendredi du mois</div>
+        </div>
+      </div>
+
       {!report && <div style={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 16, padding: 60, textAlign: 'center', color: t.textMuted }}>
-        <Icon name="report" size={40} color={t.textDim} /><div style={{ marginTop: 14 }}>Cliquez sur "Générer" pour calculer la situation de chaque membre</div>
+        <Icon name="report" size={40} color={t.textDim} />
+        <div style={{ marginTop: 14 }}>Cliquez sur "Générer" pour calculer la situation de chaque membre</div>
       </div>}
+
       {report && (
         <div className="fade-in">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
             <StatCard label="Total collecté" value={`${report.totalCollecte.toLocaleString()} F`} icon="payments" accent={t.green} />
             <StatCard label="Total attendu" value={`${report.totalAttendu.toLocaleString()} F`} icon="target" accent={t.accent} />
             <StatCard label="Membres à jour" value={`${report.membres.filter(m => m.aJour).length}/${report.membres.length}`} icon="check" accent={t.green} />
           </div>
-          <div style={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 16, overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${t.border}` }}>
+
+          {/* Bouton envoi rappels */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+            <Btn onClick={envoyerRappels} disabled={sending} variant="ghost">
+              {sending ? <span className="spin"><Icon name="loader" size={15} /></span> : <Icon name="send" size={15} />}
+              {sending ? 'Envoi...' : `Envoyer les rappels (${report.membres.length} membres)`}
+            </Btn>
+          </div>
+
+          <div style={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 16, overflow: 'auto' }}>
+            <div style={{ padding: '14px 18px', borderBottom: `1px solid ${t.border}` }}>
               <span style={{ fontWeight: 600, fontSize: 15 }}>État par membre — {report.mois}</span>
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 680 }}>
               <thead><tr style={{ background: t.surface }}>
-                {['Membre', 'Payé', 'Attendu (cotis.)', 'Solde', 'Statut'].map(h => <th key={h} style={{ color: t.textMuted, fontSize: 11, textAlign: 'left', padding: '12px 18px', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>)}
+                {['Membre', 'Payé', 'Attendu', 'Solde', 'Détails & Notes', 'Statut'].map(h =>
+                  <th key={h} style={{ color: t.textMuted, fontSize: 11, textAlign: 'left', padding: '11px 14px', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>
+                )}
               </tr></thead>
               <tbody>
                 {report.membres.map(m => (
                   <tr key={m.id} style={{ borderTop: `1px solid ${t.border}` }}>
-                    <td style={{ padding: '13px 18px', fontWeight: 500, fontSize: 13 }}>{m.nom}</td>
-                    <td style={{ padding: '13px 18px', color: t.accentLight, fontWeight: 600, fontSize: 13 }}>{m.totalPaye.toLocaleString()} F</td>
-                    <td style={{ padding: '13px 18px', color: t.textMuted, fontSize: 13 }}>2 500 F</td>
-                    <td style={{ padding: '13px 18px', color: m.aJour ? t.green : t.red, fontWeight: 600, fontSize: 13 }}>
+                    <td style={{ padding: '12px 14px', fontWeight: 500, fontSize: 13 }}>{m.nom}</td>
+                    <td style={{ padding: '12px 14px', color: t.accentLight, fontWeight: 600, fontSize: 13 }}>{m.totalPaye.toLocaleString()} F</td>
+                    <td style={{ padding: '12px 14px', color: t.textMuted, fontSize: 13 }}>2 500 F</td>
+                    <td style={{ padding: '12px 14px', color: m.aJour ? t.green : t.red, fontWeight: 600, fontSize: 13 }}>
                       {m.aJour ? '✓ Soldé' : `${(2500 - m.totalPaye).toLocaleString()} F restants`}
                     </td>
-                    <td style={{ padding: '13px 18px' }}><Badge status={m.aJour ? 'Actif' : 'Inactif'} /></td>
+                    <td style={{ padding: '12px 14px', fontSize: 11, color: t.textMuted, maxWidth: 260 }}>
+                      {m.details || <span style={{ color: t.textDim }}>—</span>}
+                    </td>
+                    <td style={{ padding: '12px 14px' }}><Badge status={m.aJour ? 'Actif' : 'Inactif'} /></td>
                   </tr>
                 ))}
               </tbody>
