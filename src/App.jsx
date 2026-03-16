@@ -316,7 +316,7 @@ const RegisterForm = ({ onAuth, setMode }) => {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, paddingBottom: 4 }}>
           <div
             onClick={() => photoRef.current.click()}
-            style={{ width: 80, height: 80, borderRadius: 14, cursor: 'pointer', overflow: 'hidden', border: `2px dashed ${photoPreview ? t.accent : t.border}`, background: t.surface, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
+            style={{ width: 80, height: 80, borderRadius: 14, cursor: 'pointer', overflow: 'hidden', border: '2px dashed ' + (photoPreview ? t.accent : t.border), background: t.surface, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
           >
             {photoPreview
               ? <img src={photoPreview} alt="photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -654,7 +654,7 @@ const Contributions = () => {
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {['Tous', 'Valide', 'En attente', 'A verifier'].map(s => (
-            <button key={s} onClick={() => setFilter(s)} style={{ padding: '7px 13px', background: filter === s ? t.accent : 'transparent', border: `1px solid ${filter === s ? t.accent : t.border}`, borderRadius: 8, color: filter === s ? '#fff' : t.textMuted, fontSize: 12, fontWeight: filter === s ? 600 : 400, cursor: 'pointer' }}>
+            <button key={s} onClick={() => setFilter(s)} style={{ padding: '7px 13px', background: filter === s ? t.accent : 'transparent', border: '1px solid ' + (filter === s ? t.accent : t.border), borderRadius: 8, color: filter === s ? '#fff' : t.textMuted, fontSize: 12, fontWeight: filter === s ? 600 : 400, cursor: 'pointer' }}>
               {s === 'Valide' ? 'Validé' : s === 'A verifier' ? 'À vérifier' : s}
             </button>
           ))}
@@ -945,7 +945,7 @@ Retourne UNIQUEMENT du JSON sans markdown:
           {/* Mode image */}
           {preuveMode === 'image' && (
             <>
-              <div onClick={() => fileRef.current.click()} style={{ border: `2px dashed ${image ? t.accent : t.border}`, borderRadius: 12, padding: 20, textAlign: 'center', cursor: 'pointer', background: image ? `${t.accent}08` : 'transparent' }}>
+              <div onClick={() => fileRef.current.click()} style={{ border: '2px dashed ' + (image ? t.accent : t.border), borderRadius: 12, padding: 20, textAlign: 'center', cursor: 'pointer', background: image ? t.accent + '08' : 'transparent' }}>
                 {image ? (
                   <>
                     <img src={image} alt="preuve" style={{ maxHeight: 150, maxWidth: '100%', borderRadius: 8, marginBottom: 8 }} />
@@ -968,11 +968,11 @@ Retourne UNIQUEMENT du JSON sans markdown:
             <>
               <textarea value={preuveTexte} onChange={e => handleTexteChange(e.target.value)}
                 placeholder={`Collez ici le texte du SMS de confirmation.\nEx: Vous avez envoye 5000 FCFA a Ronald LEUMENI NYA (699201466). Ref: TXN123456`}
-                rows={5} style={{ width: '100%', padding: '11px 14px', background: t.surface, border: `1px solid ${validationPreuve ? (validationPreuve.ok ? t.green : t.red) : t.border}`, borderRadius: 8, color: t.text, fontSize: 13, resize: 'vertical', lineHeight: 1.5 }} />
+                rows={5} style={{ width: '100%', padding: '11px 14px', background: t.surface, border: '1px solid ' + (validationPreuve ? (validationPreuve.ok ? t.green : t.red) : t.border), borderRadius: 8, color: t.text, fontSize: 13, resize: 'vertical', lineHeight: 1.5 }} />
               {preuveTexte.length > 10 && validationPreuve && (
-                <div className="fade-in" style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: validationPreuve.ok ? `${t.green}15` : `${t.red}15`, border: `1px solid ${validationPreuve.ok ? t.green : t.red}33` }}>
+                <div className="fade-in" style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: validationPreuve.ok ? t.green + '15' : t.red + '15', border: '1px solid ' + (validationPreuve.ok ? t.green : t.red) + '33' }}>
                   <span style={{ color: validationPreuve.ok ? t.green : t.red, fontSize: 13 }}>
-                    {validationPreuve.ok ? '✅ Destinataire reconnu — preuve valide' : '⚠️ Destinataire non reconnu — le SMS doit mentionner Ronald LEUMENI NYA (699201466) ou Laeticia NGO (657790272 / +237 6 57 79 02 72)'}
+                    {validationPreuve.ok ? '✅ Destinataire reconnu — preuve valide' : '⚠️ Destinataire non reconnu — SMS doit mentionner Ronald LEUMENI NYA (699201466) ou Laeticia NGO (657790272)'}
                   </span>
                 </div>
               )}
@@ -990,7 +990,7 @@ Retourne UNIQUEMENT du JSON sans markdown:
 
         {/* Résultat OCR */}
         {ocr && (
-          <div className="fade-in" style={{ background: t.surface, border: `1px solid ${ocr.destinataire_valide ? t.green : t.yellow}55`, borderRadius: 12, padding: 16 }}>
+          <div className="fade-in" style={{ background: t.surface, border: '1px solid ' + (ocr.destinataire_valide ? t.green : t.yellow) + '55', borderRadius: 12, padding: 16 }}>
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: ocr.destinataire_valide ? t.green : t.yellow }}>
               {ocr.destinataire_valide ? '✅ Destinataire validé par l\'IA' : '⚠️ Destinataire non confirmé — vérification manuelle requise'}
             </div>
@@ -1136,7 +1136,7 @@ Retourne UNIQUEMENT du JSON sans markdown:
         </div>
 
         <Field label="Capture SMS / Preuve de paiement">
-          <div onClick={() => fileRef.current.click()} style={{ border: `2px dashed ${image ? t.accent : t.border}`, borderRadius: 12, padding: 24, textAlign: 'center', cursor: 'pointer', background: image ? `${t.accent}08` : 'transparent' }}>
+          <div onClick={() => fileRef.current.click()} style={{ border: '2px dashed ' + (image ? t.accent : t.border), borderRadius: 12, padding: 24, textAlign: 'center', cursor: 'pointer', background: image ? t.accent + '08' : 'transparent' }}>
             {image ? (
               <div>
                 <img src={image} alt="preuve" style={{ maxHeight: 160, maxWidth: '100%', borderRadius: 8, marginBottom: 10 }} />
@@ -1355,15 +1355,26 @@ const Report = () => {
       </div>
 
       {/* Rappel dernier vendredi */}
-      <div style={{ background: estAujourdhuiVendredi ? `${t.green}18` : `${t.accent}12`, border: `1px solid ${estAujourdhuiVendredi ? t.green : t.accent}44`, borderRadius: 12, padding: '12px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span style={{ fontSize: 20 }}>{estAujourdhuiVendredi ? '📅' : '⏰'}</span>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: estAujourdhuiVendredi ? t.green : t.accentLight }}>
-            {estAujourdhuiVendredi ? "C'est aujourd'hui le dernier vendredi du mois — envoyez les rappels !" : `Prochain envoi automatique : ${vendredi.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} (dans ${joursAvant} jour${joursAvant > 1 ? 's' : ''})`}
+      {(() => {
+        const bgColor = estAujourdhuiVendredi ? t.green + '18' : t.accent + '12'
+        const borderColor = estAujourdhuiVendredi ? t.green + '44' : t.accent + '44'
+        const jourStr = joursAvant > 1 ? joursAvant + ' jours' : joursAvant + ' jour'
+        const dateStr = vendredi.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+        const msgVendredi = estAujourdhuiVendredi
+          ? "C'est aujourd'hui le dernier vendredi du mois — envoyez les rappels !"
+          : 'Prochain envoi : ' + dateStr + ' (dans ' + jourStr + ')'
+        return (
+          <div style={{ background: bgColor, border: '1px solid ' + borderColor, borderRadius: 12, padding: '12px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 20 }}>{estAujourdhuiVendredi ? '📅' : '⏰'}</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: estAujourdhuiVendredi ? t.green : t.accentLight }}>
+                {msgVendredi}
+              </div>
+              <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>Rappels envoyés par email chaque dernier vendredi du mois</div>
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>Rappels envoyés par email chaque dernier vendredi du mois</div>
-        </div>
-      </div>
+        )
+      })()}
 
       {!report && <div style={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 16, padding: 60, textAlign: 'center', color: t.textMuted }}>
         <Icon name="report" size={40} color={t.textDim} />
