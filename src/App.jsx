@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from './lib/supabase.js'
 
 // ─── THEME ───────────────────────────────────────────────────────────────────
@@ -693,8 +693,8 @@ const Contributions = () => {
           </thead>
           <tbody>
             {filtered.map(c => (
-              <>
-                <tr key={c.id} style={{ borderTop: `1px solid ${t.border}`, cursor: c.preuve_texte ? 'pointer' : 'default' }}
+              <React.Fragment key={c.id}>
+                <tr style={{ borderTop: `1px solid ${t.border}`, cursor: c.preuve_texte ? 'pointer' : 'default' }}
                     onClick={() => setExpanded(expanded === c.id ? null : c.id)}>
                   <td style={{ padding: '12px 12px', fontSize: 13, fontWeight: 500 }}>{c.membres?.nom || '—'}</td>
                   <td style={{ padding: '12px 12px', color: t.textMuted, fontSize: 12 }}>{c.objectifs?.nom || '—'}</td>
@@ -715,7 +715,7 @@ const Contributions = () => {
                   </td>
                 </tr>
                 {expanded === c.id && c.preuve_texte && (
-                  <tr key={`${c.id}-exp`} style={{ background: `${t.surface}99` }}>
+                  <tr style={{ background: t.surface + '99' }}>
                     <td colSpan={8} style={{ padding: '10px 20px' }}>
                       <div style={{ background: t.bg, border: `1px solid ${t.border}`, borderRadius: 8, padding: '12px 14px', fontSize: 12, color: t.text, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
                         💬 Texte SMS fourni :<br/>{c.preuve_texte}
@@ -723,7 +723,7 @@ const Contributions = () => {
                     </td>
                   </tr>
                 )}
-              </>
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -1312,9 +1312,11 @@ const Report = () => {
     const data = membres?.map(m => {
       const valides = (m.contributions || []).filter(c => c.statut === 'Valide' || c.statut === 'Validé')
       const totalPaye = valides.reduce((s, c) => s + c.montant, 0)
-      const notes = valides.map(c => c.note).filter(Boolean).join(', ')
-      const details = valides.map(c => `${c.objectifs?.nom || '—'}: ${c.montant?.toLocaleString()} F${c.note ? ` (${c.note})` : ''}`).join(' | ')
-      return { ...m, totalPaye, aJour: totalPaye >= 2500, notes, details }
+      const details = valides.map(c => {
+        const note = c.note ? ' (' + c.note + ')' : ''
+        return (c.objectifs?.nom || '—') + ': ' + (c.montant?.toLocaleString()) + ' F' + note
+      }).join(' | ')
+      return { ...m, totalPaye, aJour: totalPaye >= 2500, details }
     }) || []
     const totalCollecte = data.reduce((s, m) => s + m.totalPaye, 0)
     setReport({ membres: data, totalCollecte, totalAttendu: data.length * 2500, mois })
@@ -1326,15 +1328,14 @@ const Report = () => {
     setSending(true)
     for (const m of report.membres) {
       if (!m.email) continue
-      const sujet = encodeURIComponent(`📊 Rapport mensuel AWF — ${report.mois}`)
+      const sujet = encodeURIComponent('Rapport mensuel AWF — ' + report.mois)
       const manque = Math.max(0, 2500 - m.totalPaye)
-      const corps = encodeURIComponent(
-        m.aJour
-          ? `Bonjour ${m.nom},\n\n✅ Vous êtes à jour pour ${report.mois} !\nTotal versé : ${m.totalPaye.toLocaleString()} FCFA\n${m.details ? `Détails : ${m.details}` : ''}\n\nMerci pour votre fidélité.\n\n— AWF's Members\nPowered by Olivier Martial KONO`
-          : `Bonjour ${m.nom},\n\n⚠️ Il vous manque ${manque.toLocaleString()} FCFA pour ${report.mois}.\nDéjà versé : ${m.totalPaye.toLocaleString()} FCFA\nRestant : ${manque.toLocaleString()} FCFA\n\nMerci de régulariser au plus vite.\n\n— AWF's Members\nPowered by Olivier Martial KONO`
-      )
-      window.open(`mailto:${m.email}?subject=${sujet}&body=${corps}`, '_blank')
-      await new Promise(r => setTimeout(r, 300)) // délai entre ouvertures
+      const detailsLine = m.details ? 'Details : ' + m.details + '\n' : ''
+      const corps = m.aJour
+        ? encodeURIComponent('Bonjour ' + m.nom + ',\n\nVous etes a jour pour ' + report.mois + ' !\nTotal verse : ' + m.totalPaye.toLocaleString() + ' FCFA\n' + detailsLine + '\nMerci pour votre fidelite.\n\n— AWF\'s Members\nPowered by Olivier Martial KONO')
+        : encodeURIComponent('Bonjour ' + m.nom + ',\n\nIl vous manque ' + manque.toLocaleString() + ' FCFA pour ' + report.mois + '.\nDeja verse : ' + m.totalPaye.toLocaleString() + ' FCFA\nRestant : ' + manque.toLocaleString() + ' FCFA\n\nMerci de regulariser au plus vite.\n\n— AWF\'s Members\nPowered by Olivier Martial KONO')
+      window.open('mailto:' + m.email + '?subject=' + sujet + '&body=' + corps, '_blank')
+      await new Promise(r => setTimeout(r, 300))
     }
     setSending(false)
   }
