@@ -167,7 +167,7 @@ const AuthPage = ({ onAuth }) => {
       <div style={{ width: '100%', maxWidth: 440 }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <div style={{ width: 72, height: 72, background: '#F26522', borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', overflow: 'hidden' }}>
-            <img src="/logo.jpg" style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt="logo" />
+            <img src="https://res.cloudinary.com/dejyxmgcn/image/upload/w_200,h_200,c_pad,b_transparent,q_auto,f_auto/v1773712160/WhatsApp_Image_2025-08-13_at_3.56.59_PM_i4ih6p.jpg" style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt="logo" />
           </div>
           <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 700, color: '#EAF0FF' }}>AWF's Members</h1>
           <p style={{ color: '#8A9AC8', fontSize: 13, marginTop: 6 }}>Gestion des cotisations et contributions</p>
@@ -292,6 +292,7 @@ const NAV = [
   { id: 'dashboard', label: 'Tableau de bord',     icon: 'dashboard', roles: ['admin', 'gestionnaire'] },
   { id: 'members',   label: 'Membres',              icon: 'members',   roles: ['admin', 'gestionnaire'] },
   { id: 'payments',  label: 'Contributions',        icon: 'payments',  roles: ['admin', 'gestionnaire'] },
+  { id: 'finances',  label: 'Caisses & Retraits',   icon: 'target',    roles: ['admin'] },
   { id: 'declare',   label: 'Declarer un paiement', icon: 'add',       roles: ['admin', 'gestionnaire', 'membre'] },
   { id: 'myaccount', label: 'Mon compte',            icon: 'user',      roles: ['membre'] },
   { id: 'report',    label: 'Rapport mensuel',       icon: 'report',    roles: ['admin'] },
@@ -306,7 +307,7 @@ const SidebarContent = ({ page, setPage, membre, onLogout, onClose }) => {
       <div style={{ padding: '20px 16px', borderBottom: '1px solid #243060' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 42, height: 42, borderRadius: 10, overflow: 'hidden', flexShrink: 0, background: '#F26522' }}>
-            <img src="/logo.jpg" style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt="logo" />
+            <img src="https://res.cloudinary.com/dejyxmgcn/image/upload/w_200,h_200,c_pad,b_transparent,q_auto,f_auto/v1773712160/WhatsApp_Image_2025-08-13_at_3.56.59_PM_i4ih6p.jpg" style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt="logo" />
           </div>
           <div>
             <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: 14, color: '#EAF0FF' }}>AWF's Members</div>
@@ -993,6 +994,236 @@ const MyAccount = ({ membre }) => {
   )
 }
 
+// ─── CAISSES & RETRAITS ───────────────────────────────────────────────────────
+const Finances = () => {
+  const [retraits, setRetraits]       = useState([])
+  const [contribs, setContribs]       = useState([])
+  const [membres, setMembres]         = useState([])
+  const [tab, setTab]                 = useState('resume') // resume | retraits | deductions
+  const [loading, setLoading]         = useState(true)
+  const [showForm, setShowForm]       = useState(false)
+  const [formType, setFormType]       = useState('retrait') // retrait | deduction
+  const [form, setForm]               = useState({ membre_id: '', montant: '', motif: '', date: new Date().toISOString().split('T')[0] })
+  const [saving, setSaving]           = useState(false)
+
+  const load = async () => {
+    const [{ data: r }, { data: c }, { data: m }] = await Promise.all([
+      supabase.from('retraits').select('*, membres(nom, email)').order('date', { ascending: false }),
+      supabase.from('contributions').select('*, objectifs(nom)').eq('statut', 'Valide'),
+      supabase.from('membres').select('id, nom, email').order('nom'),
+    ])
+    setRetraits(r || [])
+    setContribs(c || [])
+    setMembres(m || [])
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [])
+
+  // Totaux
+  const totalContribs = contribs.reduce((s, c) => s + (c.montant || 0), 0)
+  const totalRetraits  = retraits.reduce((s, r) => s + (r.montant || 0), 0)
+  const solde          = totalContribs - totalRetraits
+
+  // Par catégorie
+  const parCategorie = {}
+  contribs.forEach(c => {
+    const cat = c.objectifs ? c.objectifs.nom : 'Autre'
+    parCategorie[cat] = (parCategorie[cat] || 0) + (c.montant || 0)
+  })
+  const categories = Object.entries(parCategorie).sort((a, b) => b[1] - a[1])
+
+  // Solde par membre
+  const parMembre = {}
+  contribs.forEach(c => {
+    if (!c.membre_id) return
+    if (!parMembre[c.membre_id]) parMembre[c.membre_id] = { total: 0, deduit: 0 }
+    parMembre[c.membre_id].total += (c.montant || 0)
+  })
+  retraits.filter(r => r.membre_id).forEach(r => {
+    if (!parMembre[r.membre_id]) parMembre[r.membre_id] = { total: 0, deduit: 0 }
+    parMembre[r.membre_id].deduit += (r.montant || 0)
+  })
+
+  const saveRetrait = async () => {
+    if (!form.montant || !form.motif) return
+    setSaving(true)
+    await supabase.from('retraits').insert({
+      membre_id:  formType === 'deduction' ? form.membre_id || null : null,
+      montant:    Number(form.montant),
+      motif:      form.motif,
+      date:       form.date,
+      type:       formType,
+    })
+    // Notifier le membre si déduction
+    if (formType === 'deduction' && form.membre_id) {
+      const m = membres.find(x => x.id === form.membre_id)
+      if (m && m.email) {
+        const sujet = encodeURIComponent('Deduction sur votre compte AWF')
+        const corps = encodeURIComponent(
+          'Bonjour ' + m.nom + ',\n\nUne deduction de ' + Number(form.montant).toLocaleString() + ' FCFA a ete effectuee sur votre compte.\n\nMotif : ' + form.motif + '\nDate : ' + form.date + '\n\n--- AWF Members\nPowered by Olivier Martial KONO'
+        )
+        window.open('mailto:' + m.email + '?subject=' + sujet + '&body=' + corps, '_blank')
+      }
+    }
+    setForm({ membre_id: '', montant: '', motif: '', date: new Date().toISOString().split('T')[0] })
+    setShowForm(false)
+    setSaving(false)
+    load()
+  }
+
+  if (loading) return <div style={{ padding: 40, color: '#8A9AC8' }}>Chargement...</div>
+
+  return (
+    <div className="page-enter" style={{ padding: '28px 16px', maxWidth: 960 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 700 }}>Caisses & Retraits</h2>
+          <p style={{ color: '#8A9AC8', fontSize: 13, marginTop: 4 }}>Gestion financiere complete</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Btn onClick={() => { setFormType('retrait'); setShowForm(true) }} variant="ghost">
+            <Icon name="payments" size={15} /> Retrait caisse
+          </Btn>
+          <Btn onClick={() => { setFormType('deduction'); setShowForm(true) }}>
+            <Icon name="add" size={15} color="#fff" /> Deduire membre
+          </Btn>
+        </div>
+      </div>
+
+      {/* Formulaire retrait / déduction */}
+      {showForm && (
+        <div className="fade-in" style={{ background: '#172040', border: '1px solid #243060', borderRadius: 16, padding: 22, marginBottom: 20 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, color: formType === 'deduction' ? '#FF8C4A' : '#2ECC8A' }}>
+            {formType === 'deduction' ? '📤 Déduction sur compte membre' : '🏦 Retrait de la caisse générale'}
+          </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+            {formType === 'deduction' && (
+              <Field label="Membre *">
+                <select value={form.membre_id} onChange={e => setForm({ ...form, membre_id: e.target.value })} style={{ width: '100%', padding: '11px 14px', background: '#111B30', border: '1px solid #243060', borderRadius: 8, color: '#EAF0FF', fontSize: 14 }}>
+                  <option value="">Selectionner...</option>
+                  {membres.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+                </select>
+              </Field>
+            )}
+            <Field label="Montant (FCFA) *">
+              <Input type="number" value={form.montant} onChange={e => setForm({ ...form, montant: e.target.value })} placeholder="5000" />
+            </Field>
+            <Field label="Date">
+              <Input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
+            </Field>
+            <Field label="Motif *">
+              <Input value={form.motif} onChange={e => setForm({ ...form, motif: e.target.value })} placeholder="Ex: Achat maillots, aide urgente..." />
+            </Field>
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+            <Btn onClick={saveRetrait} disabled={saving}>
+              {saving ? <Spinner /> : <Icon name="check" size={15} color="#fff" />}
+              {saving ? 'Enregistrement...' : 'Enregistrer'}
+            </Btn>
+            <Btn variant="ghost" onClick={() => setShowForm(false)}>Annuler</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Onglets */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+        {[['resume', 'Résumé'], ['retraits', 'Retraits & Déductions'], ['categories', 'Par catégorie']].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid ' + (tab === id ? '#F26522' : '#243060'), background: tab === id ? '#F26522' : 'transparent', color: tab === id ? '#fff' : '#8A9AC8', fontSize: 13, fontWeight: tab === id ? 600 : 400, cursor: 'pointer' }}>{label}</button>
+        ))}
+      </div>
+
+      {/* Résumé */}
+      {tab === 'resume' && (
+        <div className="fade-in">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
+            <StatCard label="Total contributions" value={fmt(totalContribs) + ' F'} icon="payments" accent="#2ECC8A" />
+            <StatCard label="Total retraits" value={fmt(totalRetraits) + ' F'} icon="send" accent="#E85555" />
+            <StatCard label="Solde disponible" value={fmt(solde) + ' F'} icon="target" accent={solde >= 0 ? '#2ECC8A' : '#E85555'} />
+          </div>
+          {/* Solde par membre */}
+          <div style={{ background: '#172040', border: '1px solid #243060', borderRadius: 16, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid #243060' }}>
+              <span style={{ fontWeight: 600, fontSize: 15 }}>Solde par membre</span>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr style={{ background: '#111B30' }}>
+                {['Membre', 'Contributions', 'Déductions', 'Solde net'].map(h =>
+                  <th key={h} style={{ color: '#8A9AC8', fontSize: 11, textAlign: 'left', padding: '11px 14px', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>
+                )}
+              </tr></thead>
+              <tbody>
+                {membres.map(m => {
+                  const d = parMembre[m.id] || { total: 0, deduit: 0 }
+                  const net = d.total - d.deduit
+                  return (
+                    <tr key={m.id} style={{ borderTop: '1px solid #243060' }}>
+                      <td style={{ padding: '11px 14px', fontSize: 13, fontWeight: 500 }}>{m.nom}</td>
+                      <td style={{ padding: '11px 14px', color: '#2ECC8A', fontSize: 13, fontWeight: 600 }}>{fmt(d.total)} F</td>
+                      <td style={{ padding: '11px 14px', color: '#E85555', fontSize: 13 }}>{d.deduit > 0 ? '− ' + fmt(d.deduit) + ' F' : '—'}</td>
+                      <td style={{ padding: '11px 14px', color: net >= 0 ? '#FF8C4A' : '#E85555', fontSize: 13, fontWeight: 700 }}>{fmt(net)} F</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Retraits & déductions */}
+      {tab === 'retraits' && (
+        <div className="fade-in" style={{ background: '#172040', border: '1px solid #243060', borderRadius: 16, overflow: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
+            <thead><tr style={{ background: '#111B30' }}>
+              {['Date', 'Type', 'Membre', 'Montant', 'Motif'].map(h =>
+                <th key={h} style={{ color: '#8A9AC8', fontSize: 11, textAlign: 'left', padding: '11px 14px', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>
+              )}
+            </tr></thead>
+            <tbody>
+              {retraits.length === 0 && <tr><td colSpan={5} style={{ padding: 30, textAlign: 'center', color: '#8A9AC8' }}>Aucun retrait enregistre</td></tr>}
+              {retraits.map(r => (
+                <tr key={r.id} style={{ borderTop: '1px solid #243060' }}>
+                  <td style={{ padding: '11px 14px', color: '#8A9AC8', fontSize: 12 }}>{r.date}</td>
+                  <td style={{ padding: '11px 14px' }}>
+                    <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: r.type === 'deduction' ? '#E8555520' : '#F2652220', color: r.type === 'deduction' ? '#E85555' : '#FF8C4A' }}>
+                      {r.type === 'deduction' ? 'Déduction' : 'Retrait'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '11px 14px', fontSize: 13 }}>{r.membres ? r.membres.nom : '—'}</td>
+                  <td style={{ padding: '11px 14px', color: '#E85555', fontWeight: 600, fontSize: 13 }}>− {fmt(r.montant)} F</td>
+                  <td style={{ padding: '11px 14px', color: '#8A9AC8', fontSize: 12 }}>{r.motif}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Par catégorie */}
+      {tab === 'categories' && (
+        <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {categories.map(([nom, total]) => {
+            const pct = totalContribs > 0 ? Math.round((total / totalContribs) * 100) : 0
+            return (
+              <div key={nom} style={{ background: '#172040', border: '1px solid #243060', borderRadius: 12, padding: '14px 18px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>{nom}</span>
+                  <span style={{ color: '#FF8C4A', fontWeight: 700, fontSize: 14 }}>{fmt(total)} F <span style={{ color: '#8A9AC8', fontSize: 11, fontWeight: 400 }}>({pct}%)</span></span>
+                </div>
+                <div style={{ height: 5, background: '#243060', borderRadius: 3 }}>
+                  <div style={{ height: '100%', width: pct + '%', background: '#F26522', borderRadius: 3 }} />
+                </div>
+              </div>
+            )
+          })}
+          {categories.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: '#8A9AC8' }}>Aucune donnee</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── RAPPORT ─────────────────────────────────────────────────────────────────
 const getDernierVendredi = () => {
   const d = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)
@@ -1140,13 +1371,13 @@ export default function App() {
   const handleLogout = async () => { await supabase.auth.signOut(); setUser(null); setMembre(null); setPage('dashboard') }
   const goTo         = p => { setPage(p); setSide(false) }
 
-  const TITLES = { dashboard: 'Tableau de bord', members: 'Membres', payments: 'Contributions', declare: 'Declarer un paiement', myaccount: 'Mon compte', report: 'Rapport mensuel' }
+  const TITLES = { dashboard: 'Tableau de bord', members: 'Membres', payments: 'Contributions', finances: 'Caisses & Retraits', declare: 'Declarer un paiement', myaccount: 'Mon compte', report: 'Rapport mensuel' }
 
   if (checking) return (
     <div style={{ minHeight: '100vh', background: '#0D1420', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <style>{css}</style>
       <div style={{ textAlign: 'center' }}>
-        <img src="/logo.jpg" style={{ width: 64, height: 64, objectFit: 'contain', marginBottom: 16, borderRadius: 12 }} alt="logo" />
+        <img src="https://res.cloudinary.com/dejyxmgcn/image/upload/w_200,h_200,c_pad,b_transparent,q_auto,f_auto/v1773712160/WhatsApp_Image_2025-08-13_at_3.56.59_PM_i4ih6p.jpg" style={{ width: 64, height: 64, objectFit: 'contain', marginBottom: 16, borderRadius: 12 }} alt="logo" />
         <div style={{ color: '#8A9AC8' }}>Chargement...</div>
       </div>
     </div>
@@ -1158,6 +1389,7 @@ export default function App() {
     dashboard: <Dashboard />,
     members:   <Members />,
     payments:  <Contributions />,
+    finances:  <Finances />,
     declare:   <Declare membreId={membre ? membre.id : null} />,
     myaccount: <MyAccount membre={membre} />,
     report:    <Report />,
@@ -1176,7 +1408,7 @@ export default function App() {
           </button>
           <span style={{ fontWeight: 700, fontSize: 15 }}>{TITLES[page] || 'AWF Members'}</span>
           <div style={{ width: 36, height: 36, borderRadius: 8, overflow: 'hidden', background: '#F26522' }}>
-            <img src="/logo.jpg" style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt="logo" />
+            <img src="https://res.cloudinary.com/dejyxmgcn/image/upload/w_200,h_200,c_pad,b_transparent,q_auto,f_auto/v1773712160/WhatsApp_Image_2025-08-13_at_3.56.59_PM_i4ih6p.jpg" style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt="logo" />
           </div>
         </div>
         <main key={page} className="page-enter" style={{ flex: 1, overflowY: 'auto' }}>
