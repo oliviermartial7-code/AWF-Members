@@ -293,7 +293,8 @@ const NAV = [
   { id: 'members',   label: 'Membres',              icon: 'members',   roles: ['admin', 'gestionnaire'] },
   { id: 'payments',  label: 'Contributions',        icon: 'payments',  roles: ['admin', 'gestionnaire'] },
   { id: 'finances',  label: 'Caisses & Retraits',   icon: 'target',    roles: ['admin'] },
-  { id: 'declare',   label: 'Declarer un paiement', icon: 'add',       roles: ['admin', 'gestionnaire', 'membre'] },
+  { id: 'activites', label: 'Activités',             icon: 'scan',      roles: ['admin', 'gestionnaire'] },
+  { id: 'declare',   label: 'Déclarer un paiement', icon: 'add',       roles: ['admin', 'gestionnaire', 'membre'] },
   { id: 'myaccount', label: 'Mon compte',            icon: 'user',      roles: ['membre'] },
   { id: 'report',    label: 'Rapport mensuel',       icon: 'report',    roles: ['admin'] },
 ]
@@ -445,8 +446,9 @@ const Dashboard = () => {
 
 // ─── MEMBRES ─────────────────────────────────────────────────────────────────
 const Members = () => {
-  const [membres, setMembres] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [membres, setMembres]     = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [confirmDel, setConfirmDel] = useState(null) // id du membre à supprimer
 
   const load = async () => {
     const { data } = await supabase.from('membres').select('*').order('nom')
@@ -454,21 +456,47 @@ const Members = () => {
   }
   useEffect(() => { load() }, [])
 
-  const setRole = async (id, role) => { await supabase.from('membres').update({ role }).eq('id', id); load() }
-  const toggle  = async (id, s)    => { await supabase.from('membres').update({ statut: s === 'Actif' ? 'Inactif' : 'Actif' }).eq('id', id); load() }
+  const setRole  = async (id, role) => { await supabase.from('membres').update({ role }).eq('id', id); load() }
+  const toggle   = async (id, s)    => { await supabase.from('membres').update({ statut: s === 'Actif' ? 'Inactif' : 'Actif' }).eq('id', id); load() }
+
+  const deleteMembre = async (id) => {
+    // Supprimer les contributions du membre d'abord
+    await supabase.from('contributions').delete().eq('membre_id', id)
+    await supabase.from('membres').delete().eq('id', id)
+    setConfirmDel(null)
+    load()
+  }
 
   if (loading) return <div style={{ padding: 40, color: '#8A9AC8' }}>Chargement...</div>
 
   return (
-    <div className="page-enter" style={{ padding: '28px 16px', maxWidth: 900 }}>
+    <div className="page-enter" style={{ padding: '28px 16px', maxWidth: 960 }}>
       <div style={{ marginBottom: 24 }}>
         <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 700 }}>Membres</h2>
         <p style={{ color: '#8A9AC8', fontSize: 13, marginTop: 4 }}>{membres.length} membres</p>
       </div>
+
+      {/* Modal confirmation suppression */}
+      {confirmDel && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="fade-in" style={{ background: '#172040', border: '1px solid #E85555', borderRadius: 16, padding: 28, maxWidth: 380, width: '100%' }}>
+            <div style={{ fontSize: 32, textAlign: 'center', marginBottom: 12 }}>⚠️</div>
+            <h3 style={{ textAlign: 'center', fontSize: 17, fontWeight: 600, marginBottom: 8 }}>Supprimer ce membre ?</h3>
+            <p style={{ color: '#8A9AC8', fontSize: 13, textAlign: 'center', marginBottom: 22 }}>
+              Cette action supprime le membre et <strong style={{ color: '#E85555' }}>toutes ses contributions</strong>. Irréversible.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConfirmDel(null)} style={{ flex: 1, padding: '10px', borderRadius: 10, border: '1px solid #243060', background: 'transparent', color: '#8A9AC8', cursor: 'pointer', fontWeight: 500 }}>Annuler</button>
+              <button onClick={() => deleteMembre(confirmDel)} style={{ flex: 1, padding: '10px', borderRadius: 10, border: 'none', background: '#E85555', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>Supprimer définitivement</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ background: '#172040', border: '1px solid #243060', borderRadius: 16, overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
           <thead><tr style={{ background: '#111B30' }}>
-            {['Membre', 'Contact', 'Role', 'Statut', 'Action'].map(h => <th key={h} style={{ color: '#8A9AC8', fontSize: 11, textAlign: 'left', padding: '12px 14px', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>)}
+            {['Membre', 'Contact', 'Role', 'Statut', 'Actions'].map(h => <th key={h} style={{ color: '#8A9AC8', fontSize: 11, textAlign: 'left', padding: '12px 14px', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>)}
           </tr></thead>
           <tbody>
             {membres.map(m => (
@@ -495,9 +523,14 @@ const Members = () => {
                 </td>
                 <td style={{ padding: '14px 14px' }}><Badge status={m.statut} /></td>
                 <td style={{ padding: '14px 14px' }}>
-                  <button onClick={() => toggle(m.id, m.statut)} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid #243060', background: 'transparent', color: '#8A9AC8', fontSize: 12, cursor: 'pointer' }}>
-                    {m.statut === 'Actif' ? 'Desactiver' : 'Activer'}
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => toggle(m.id, m.statut)} style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid #243060', background: 'transparent', color: '#8A9AC8', fontSize: 12, cursor: 'pointer' }}>
+                      {m.statut === 'Actif' ? 'Désactiver' : 'Activer'}
+                    </button>
+                    <button onClick={() => setConfirmDel(m.id)} style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid #E8555544', background: '#E8555515', color: '#E85555', fontSize: 12, cursor: 'pointer' }}>
+                      Supprimer
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -536,13 +569,18 @@ const Contributions = () => {
   }, [])
 
   const validate = async c => {
-    // Mise à jour optimiste immédiate dans l'état local
     setContribs(prev => prev.map(x => x.id === c.id ? { ...x, statut: 'Valide' } : x))
-    // Puis mise à jour en base
     await supabase.from('contributions').update({ statut: 'Valide' }).eq('id', c.id)
     if (c.membres && c.membres.email) {
       notifierEmail(c.membres.email, c.membres.nom, c.montant, c.objectifs ? c.objectifs.nom : 'contribution')
     }
+  }
+
+  const deleteContrib = async (id, e) => {
+    e.stopPropagation()
+    if (!window.confirm('Supprimer cette contribution ?')) return
+    setContribs(prev => prev.filter(x => x.id !== id))
+    await supabase.from('contributions').delete().eq('id', id)
   }
 
   const filtered = filter === 'Tous' ? contribs : contribs.filter(c => c.statut === filter)
@@ -585,11 +623,14 @@ const Contributions = () => {
                   </td>
                   <td style={{ padding: '12px 12px' }}><Badge status={c.statut} /></td>
                   <td style={{ padding: '12px 12px' }}>
-                    {c.statut !== 'Valide' && (
-                      <Btn variant="success" onClick={e => { e.stopPropagation(); validate(c) }} style={{ padding: '5px 10px', fontSize: 11 }}>
-                        <Icon name="check" size={12} color="#2ECC8A" /> Valider
-                      </Btn>
-                    )}
+                    <div style={{ display: 'flex', gap: 5 }}>
+                      {c.statut !== 'Valide' && (
+                        <Btn variant="success" onClick={e => { e.stopPropagation(); validate(c) }} style={{ padding: '5px 10px', fontSize: 11 }}>
+                          <Icon name="check" size={12} color="#2ECC8A" /> Valider
+                        </Btn>
+                      )}
+                      <button onClick={e => deleteContrib(c.id, e)} style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid #E8555544', background: '#E8555515', color: '#E85555', fontSize: 11, cursor: 'pointer' }}>🗑</button>
+                    </div>
                   </td>
                 </tr>
                 {expanded === c.id && c.preuve_texte && (
@@ -1224,6 +1265,134 @@ const Finances = () => {
   )
 }
 
+// ─── ACTIVITÉS ────────────────────────────────────────────────────────────────
+const Activites = () => {
+  const [activites, setActivites] = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [showForm, setShowForm]   = useState(false)
+  const [form, setForm]           = useState({
+    nom: '', date: new Date().toISOString().split('T')[0],
+    type: 'Match', description: '', montant_cotisation: '', objectif_nom: ''
+  })
+  const [saving, setSaving] = useState(false)
+
+  const load = async () => {
+    const { data } = await supabase.from('activites').select('*').order('date', { ascending: false })
+    setActivites(data || []); setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  const save = async () => {
+    if (!form.nom || !form.date) return
+    setSaving(true)
+    await supabase.from('activites').insert({
+      nom: form.nom, date: form.date, type: form.type,
+      description: form.description || null,
+      montant_cotisation: Number(form.montant_cotisation) || 0,
+      objectif_nom: form.objectif_nom || null,
+    })
+    setForm({ nom: '', date: new Date().toISOString().split('T')[0], type: 'Match', description: '', montant_cotisation: '', objectif_nom: '' })
+    setShowForm(false); setSaving(false); load()
+  }
+
+  const deleteAct = async (id) => {
+    if (!window.confirm('Supprimer cette activité ?')) return
+    await supabase.from('activites').delete().eq('id', id); load()
+  }
+
+  const typeColors = { 'Match': '#F26522', 'Réunion': '#A07AE8', 'Événement': '#2ECC8A', 'Tournoi': '#F0C040', 'Autre': '#8A9AC8' }
+  const now = new Date().toISOString().split('T')[0]
+
+  if (loading) return <div style={{ padding: 40, color: '#8A9AC8' }}>Chargement...</div>
+
+  return (
+    <div className="page-enter" style={{ padding: '28px 16px', maxWidth: 860 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 700 }}>Activités & Calendrier</h2>
+          <p style={{ color: '#8A9AC8', fontSize: 13, marginTop: 4 }}>Matchs, réunions, événements — {activites.length} enregistrés</p>
+        </div>
+        <Btn onClick={() => setShowForm(!showForm)}>
+          <Icon name="add" size={15} color="#fff" /> Nouvelle activité
+        </Btn>
+      </div>
+
+      {/* Formulaire */}
+      {showForm && (
+        <div className="fade-in" style={{ background: '#172040', border: '1px solid #243060', borderRadius: 16, padding: 22, marginBottom: 20 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>Nouvelle activité</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <Field label="Nom *">
+              <Input value={form.nom} onChange={e => setForm({...form, nom: e.target.value})} placeholder="Ex: Match vs Équipe B" />
+            </Field>
+            <Field label="Date *">
+              <Input type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+            </Field>
+            <Field label="Type">
+              <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} style={{ width: '100%', padding: '11px 14px', background: '#111B30', border: '1px solid #243060', borderRadius: 8, color: '#EAF0FF', fontSize: 14 }}>
+                {['Match', 'Réunion', 'Événement', 'Tournoi', 'Autre'].map(t => <option key={t}>{t}</option>)}
+              </select>
+            </Field>
+            <Field label="Cotisation liée (FCFA)">
+              <Input type="number" value={form.montant_cotisation} onChange={e => setForm({...form, montant_cotisation: e.target.value})} placeholder="0" />
+            </Field>
+            <Field label="Objectif lié">
+              <select value={form.objectif_nom} onChange={e => setForm({...form, objectif_nom: e.target.value})} style={{ width: '100%', padding: '11px 14px', background: '#111B30', border: '1px solid #243060', borderRadius: 8, color: '#EAF0FF', fontSize: 14 }}>
+                <option value="">Aucun</option>
+                {OBJECTIFS_AWF.map(o => <option key={o.nom} value={o.nom}>{o.nom}</option>)}
+              </select>
+            </Field>
+            <Field label="Description / Notes">
+              <Input value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="Détails, lieu, remarques..." />
+            </Field>
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+            <Btn onClick={save} disabled={saving}>
+              {saving ? <Spinner /> : <Icon name="check" size={15} color="#fff" />}
+              {saving ? 'Enregistrement...' : 'Enregistrer'}
+            </Btn>
+            <Btn variant="ghost" onClick={() => setShowForm(false)}>Annuler</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Liste */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {activites.length === 0 && (
+          <div style={{ padding: 60, textAlign: 'center', color: '#8A9AC8', background: '#172040', borderRadius: 16, border: '1px solid #243060' }}>
+            Aucune activité enregistrée — créez la première !
+          </div>
+        )}
+        {activites.map(a => {
+          const isPast = a.date < now
+          const color  = typeColors[a.type] || '#8A9AC8'
+          return (
+            <div key={a.id} className="fade-in" style={{ background: '#172040', border: '1px solid #243060', borderRadius: 14, padding: '16px 20px', display: 'flex', alignItems: 'flex-start', gap: 16, opacity: isPast ? 0.75 : 1 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 12, background: color + '22', border: '1px solid ' + color + '44', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color, lineHeight: 1 }}>{new Date(a.date + 'T00:00').toLocaleDateString('fr-FR', { day: '2-digit' })}</div>
+                <div style={{ fontSize: 9, color, textTransform: 'uppercase' }}>{new Date(a.date + 'T00:00').toLocaleDateString('fr-FR', { month: 'short' })}</div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{a.nom}</span>
+                  <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: color + '22', color }}>{a.type}</span>
+                  {isPast && <span style={{ fontSize: 11, color: '#3A4870' }}>Passé</span>}
+                </div>
+                {a.description && <div style={{ color: '#8A9AC8', fontSize: 12, marginBottom: 4 }}>{a.description}</div>}
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                  {a.montant_cotisation > 0 && <span style={{ fontSize: 11, color: '#FF8C4A' }}>💰 Cotisation : {fmt(a.montant_cotisation)} F</span>}
+                  {a.objectif_nom && <span style={{ fontSize: 11, color: '#8A9AC8' }}>🎯 {a.objectif_nom}</span>}
+                </div>
+              </div>
+              <button onClick={() => deleteAct(a.id)} style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid #E8555544', background: '#E8555515', color: '#E85555', fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>🗑</button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ─── RAPPORT ─────────────────────────────────────────────────────────────────
 const getDernierVendredi = () => {
   const d = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)
@@ -1243,15 +1412,39 @@ const Report = () => {
 
   const generate = async () => {
     setLoading(true)
-    const { data: membres } = await supabase.from('membres').select('*, contributions(montant, statut, note, objectifs(nom))')
+    const moisCourant = now.toISOString().slice(0, 7) // "2025-03"
+
+    const [{ data: membres }, { data: retraits }, { data: activites }] = await Promise.all([
+      supabase.from('membres').select('*, contributions(montant, statut, note, date, objectifs(nom))'),
+      supabase.from('retraits').select('*').eq('type', 'deduction'),
+      supabase.from('activites').select('*').order('date', { ascending: false }).limit(20),
+    ])
     const mois = now.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+
+    const { data: retraitsGeneraux } = await supabase.from('retraits').select('montant').eq('type', 'retrait')
+    const totalRetraitsGeneraux = (retraitsGeneraux || []).reduce((s, r) => s + (r.montant || 0), 0)
+
     const data = (membres || []).map(m => {
-      const valides   = (m.contributions || []).filter(c => c.statut === 'Valide')
-      const total     = valides.reduce((s, c) => s + (c.montant || 0), 0)
-      const details   = valides.map(c => (c.objectifs ? c.objectifs.nom : '') + ': ' + fmt(c.montant) + ' F' + (c.note ? ' (' + c.note + ')' : '')).join(' | ')
-      return { ...m, totalPaye: total, aJour: total >= 2500, details }
+      const valides          = (m.contributions || []).filter(c => c.statut === 'Valide')
+      const validesCeMois    = valides.filter(c => c.date && c.date.startsWith(moisCourant))
+      const enAttente        = (m.contributions || []).filter(c => c.statut === 'En attente' || c.statut === 'A verifier')
+      const total            = valides.reduce((s, c) => s + (c.montant || 0), 0)
+      const totalMois        = validesCeMois.reduce((s, c) => s + (c.montant || 0), 0)
+      const cotiseMois       = validesCeMois.filter(c => c.objectifs && c.objectifs.nom === 'Cotisation mensuelle').reduce((s, c) => s + (c.montant || 0), 0)
+      const aJour            = cotiseMois >= 2500
+      const retard           = Math.max(0, 2500 - cotiseMois)
+      const details          = valides.map(c => (c.objectifs ? c.objectifs.nom : '') + ': ' + fmt(c.montant) + ' F' + (c.note ? ' (' + c.note + ')' : '')).join(' | ')
+      const detailsMois      = validesCeMois.map(c => (c.objectifs ? c.objectifs.nom : '') + ': ' + fmt(c.montant) + ' F').join(' | ')
+      const notes            = valides.filter(c => c.note).map(c => c.note).join(', ')
+      const deductions       = (retraits || []).filter(r => r.membre_id === m.id)
+      const totalDeduit      = deductions.reduce((s, r) => s + (r.montant || 0), 0)
+      const soldeNet         = total - totalDeduit
+      return { ...m, total, totalMois, cotiseMois, aJour, retard, details, detailsMois, notes, totalDeduit, soldeNet, enAttente: enAttente.length }
     })
-    setReport({ membres: data, totalCollecte: data.reduce((s, m) => s + m.totalPaye, 0), totalAttendu: data.length * 2500, mois })
+
+    const totalCollecte = data.reduce((s, m) => s + m.total, 0)
+    const totalMoisGlobal = data.reduce((s, m) => s + m.totalMois, 0)
+    setReport({ membres: data, totalCollecte, totalMoisGlobal, totalAttendu: data.length * 2500, totalRetraitsGeneraux, soldeGlobal: totalCollecte - totalRetraitsGeneraux, mois, activites: activites || [] })
     setLoading(false)
   }
 
@@ -1263,8 +1456,24 @@ const Report = () => {
       const sujet  = encodeURIComponent('Rapport mensuel AWF - ' + report.mois)
       const manque = Math.max(0, 2500 - m.totalPaye)
       const txt    = m.aJour
-        ? 'Bonjour ' + m.nom + ',\n\nVous etes a jour pour ' + report.mois + '!\nTotal verse: ' + fmt(m.totalPaye) + ' FCFA\n' + (m.details ? 'Details: ' + m.details + '\n' : '') + '\nMerci.\n\n--- AWF Members\nPowered by Olivier Martial KONO'
-        : 'Bonjour ' + m.nom + ',\n\nIl vous manque ' + fmt(manque) + ' FCFA pour ' + report.mois + '.\nDeja verse: ' + fmt(m.totalPaye) + ' FCFA\nRestant: ' + fmt(manque) + ' FCFA\n\nMerci de regulariser.\n\n--- AWF Members\nPowered by Olivier Martial KONO'
+        ? 'Bonjour ' + m.nom + ',\n\nVous etes a jour pour ' + report.mois + '!\nCotisations versees: ' + fmt(m.totalPaye) + ' FCFA\n' + (m.totalDeduit > 0 ? 'Deductions: ' + fmt(m.totalDeduit) + ' FCFA\nSolde net: ' + fmt(m.soldeNet) + ' FCFA\n' : '') + (m.details ? 'Details: ' + m.details + '\n' : '') + '\nMerci.\n\n--- AWF Members\nPowered by Olivier Martial KONO'
+        : 'Bonjour ' + m.nom + ',\n\nIl vous manque ' + fmt(manque) + ' FCFA pour ' + report.mois + '.\nDeja verse: ' + fmt(m.totalPaye) + ' FCFA\n' + (m.totalDeduit > 0 ? 'Deductions: − ' + fmt(m.totalDeduit) + ' FCFA\nSolde net: ' + fmt(m.soldeNet) + ' FCFA\n' : '') + 'Restant cotisation: ' + fmt(manque) + ' FCFA\n\nMerci de regulariser.\n\n--- AWF Members\nPowered by Olivier Martial KONO'
+      window.open('mailto:' + m.email + '?subject=' + sujet + '&body=' + encodeURIComponent(txt), '_blank')
+      await new Promise(r => setTimeout(r, 300))
+    }
+    setSending(false)
+  }
+
+  const envoyerRappels = async () => {
+    if (!report) return
+    setSending(true)
+    for (const m of report.membres) {
+      if (!m.email) continue
+      const sujet  = encodeURIComponent('Rapport mensuel AWF - ' + report.mois)
+      const manque = m.retard
+      const txt    = m.aJour
+        ? 'Bonjour ' + m.nom + ',\n\nVous etes a jour pour ' + report.mois + '!\nVerse ce mois: ' + fmt(m.totalMois) + ' FCFA\nTotal general: ' + fmt(m.total) + ' FCFA\n' + (m.notes ? 'Notes: ' + m.notes + '\n' : '') + '\nMerci.\n\n--- AWF Members\nPowered by Olivier Martial KONO'
+        : 'Bonjour ' + m.nom + ',\n\nIl vous manque ' + fmt(manque) + ' FCFA de cotisation pour ' + report.mois + '.\nVerse ce mois: ' + fmt(m.totalMois) + ' FCFA\nCotisation attendue: 2 500 FCFA\nRetard: ' + fmt(manque) + ' FCFA\n\nMerci de regulariser.\n\n--- AWF Members\nPowered by Olivier Martial KONO'
       window.open('mailto:' + m.email + '?subject=' + sujet + '&body=' + encodeURIComponent(txt), '_blank')
       await new Promise(r => setTimeout(r, 300))
     }
@@ -1279,65 +1488,106 @@ const Report = () => {
   const bColor  = isVend ? '#2ECC8A' : '#FF8C4A'
 
   return (
-    <div className="page-enter" style={{ padding: '28px 16px', maxWidth: 960 }}>
+    <div className="page-enter" style={{ padding: '28px 16px', maxWidth: 1000 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 700 }}>Rapport mensuel</h2>
-          <p style={{ color: '#8A9AC8', fontSize: 13, marginTop: 4 }}>Etat financier de l'association</p>
+          <p style={{ color: '#8A9AC8', fontSize: 13, marginTop: 4 }}>État financier complet de l'association</p>
         </div>
         <Btn onClick={generate} disabled={loading}>
-          {loading ? <Spinner /> : <Icon name="report" size={16} color="#fff" />}{loading ? 'Generation...' : 'Generer le rapport'}
+          {loading ? <Spinner /> : <Icon name="report" size={16} color="#fff" />}{loading ? 'Génération...' : 'Générer le rapport'}
         </Btn>
       </div>
 
+      {/* Bannière vendredi */}
       <div style={{ background: bBg, border: '1px solid ' + bBorder, borderRadius: 12, padding: '12px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
         <span style={{ fontSize: 20 }}>{isVend ? '📅' : '⏰'}</span>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: bColor }}>{bannerMsg}</div>
-          <div style={{ fontSize: 11, color: '#8A9AC8', marginTop: 2 }}>Rappels envoyes par email chaque dernier vendredi du mois</div>
+          <div style={{ fontSize: 11, color: '#8A9AC8', marginTop: 2 }}>Rappels envoyés par email chaque dernier vendredi du mois</div>
         </div>
       </div>
 
       {!report && (
         <div style={{ background: '#172040', border: '1px solid #243060', borderRadius: 16, padding: 60, textAlign: 'center', color: '#8A9AC8' }}>
           <Icon name="report" size={40} color="#3A4870" />
-          <div style={{ marginTop: 14 }}>Cliquez sur Generer pour calculer la situation de chaque membre</div>
+          <div style={{ marginTop: 14 }}>Cliquez sur Générer pour calculer la situation de chaque membre</div>
         </div>
       )}
 
       {report && (
         <div className="fade-in">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
-            <StatCard label="Total collecte" value={fmt(report.totalCollecte) + ' F'} icon="payments" accent="#2ECC8A" />
-            <StatCard label="Total attendu"  value={fmt(report.totalAttendu) + ' F'}  icon="target"   accent="#F26522" />
-            <StatCard label="Membres a jour" value={report.membres.filter(m => m.aJour).length + '/' + report.membres.length} icon="check" accent="#2ECC8A" />
+          {/* Stats globales */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 12 }}>
+            <StatCard label="Total collecté (all)" value={fmt(report.totalCollecte) + ' F'} icon="payments" accent="#2ECC8A" />
+            <StatCard label={'Collecté ' + report.mois} value={fmt(report.totalMoisGlobal) + ' F'} icon="target" accent="#F26522" />
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+            <StatCard label="Retraits" value={fmt(report.totalRetraitsGeneraux) + ' F'} icon="send" accent="#E85555" />
+            <StatCard label="Solde dispo" value={fmt(report.soldeGlobal) + ' F'} icon="target" accent={report.soldeGlobal >= 0 ? '#2ECC8A' : '#E85555'} />
+            <StatCard label="À jour" value={report.membres.filter(m => m.aJour).length + '/' + report.membres.length} icon="check" accent="#2ECC8A" />
+          </div>
+
+          {/* Bouton rappels */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
             <Btn onClick={envoyerRappels} disabled={sending} variant="ghost">
               {sending ? <Spinner /> : <Icon name="send" size={15} />}
-              {sending ? 'Envoi...' : 'Envoyer les rappels (' + report.membres.length + ' membres)'}
+              {sending ? 'Envoi...' : 'Envoyer les rappels (' + report.membres.length + ')'}
             </Btn>
           </div>
-          <div style={{ background: '#172040', border: '1px solid #243060', borderRadius: 16, overflow: 'auto' }}>
-            <div style={{ padding: '14px 18px', borderBottom: '1px solid #243060' }}><span style={{ fontWeight: 600, fontSize: 15 }}>Etat par membre — {report.mois}</span></div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 680 }}>
+
+          {/* Tableau par membre */}
+          <div style={{ background: '#172040', border: '1px solid #243060', borderRadius: 16, overflow: 'auto', marginBottom: 20 }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid #243060' }}>
+              <span style={{ fontWeight: 600, fontSize: 15 }}>Détail par membre — {report.mois}</span>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
               <thead><tr style={{ background: '#111B30' }}>
-                {['Membre', 'Paye', 'Attendu', 'Solde', 'Details', 'Statut'].map(h => <th key={h} style={{ color: '#8A9AC8', fontSize: 11, textAlign: 'left', padding: '11px 14px', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>)}
+                {['Membre', 'Ce mois', 'Retard cotis.', 'Total général', 'En attente', 'Notes & détails', 'Statut'].map(h =>
+                  <th key={h} style={{ color: '#8A9AC8', fontSize: 10, textAlign: 'left', padding: '11px 12px', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>
+                )}
               </tr></thead>
               <tbody>
                 {report.membres.map(m => (
                   <tr key={m.id} style={{ borderTop: '1px solid #243060' }}>
-                    <td style={{ padding: '12px 14px', fontWeight: 500, fontSize: 13 }}>{m.nom}</td>
-                    <td style={{ padding: '12px 14px', color: '#FF8C4A', fontWeight: 600, fontSize: 13 }}>{fmt(m.totalPaye)} F</td>
-                    <td style={{ padding: '12px 14px', color: '#8A9AC8', fontSize: 13 }}>2 500 F</td>
-                    <td style={{ padding: '12px 14px', color: m.aJour ? '#2ECC8A' : '#E85555', fontWeight: 600, fontSize: 13 }}>{m.aJour ? 'Solde' : fmt(2500 - m.totalPaye) + ' F restants'}</td>
-                    <td style={{ padding: '12px 14px', fontSize: 11, color: '#8A9AC8', maxWidth: 260 }}>{m.details || '—'}</td>
-                    <td style={{ padding: '12px 14px' }}><Badge status={m.aJour ? 'Actif' : 'Inactif'} /></td>
+                    <td style={{ padding: '12px 12px', fontWeight: 600, fontSize: 13 }}>{m.nom}</td>
+                    <td style={{ padding: '12px 12px', color: m.totalMois > 0 ? '#2ECC8A' : '#3A4870', fontWeight: 600, fontSize: 13 }}>{fmt(m.totalMois)} F</td>
+                    <td style={{ padding: '12px 12px', color: m.aJour ? '#2ECC8A' : '#E85555', fontWeight: 600, fontSize: 13 }}>
+                      {m.aJour ? '✓ À jour' : '− ' + fmt(m.retard) + ' F'}
+                    </td>
+                    <td style={{ padding: '12px 12px', color: '#FF8C4A', fontSize: 13 }}>{fmt(m.total)} F</td>
+                    <td style={{ padding: '12px 12px', color: m.enAttente > 0 ? '#F0C040' : '#3A4870', fontSize: 12 }}>
+                      {m.enAttente > 0 ? m.enAttente + ' en attente' : '—'}
+                    </td>
+                    <td style={{ padding: '12px 12px', fontSize: 11, color: '#8A9AC8', maxWidth: 220 }}>
+                      {m.detailsMois && <div style={{ marginBottom: 2 }}>📅 Ce mois : {m.detailsMois}</div>}
+                      {m.notes && <div style={{ color: '#A07AE8' }}>📝 {m.notes}</div>}
+                    </td>
+                    <td style={{ padding: '12px 12px' }}><Badge status={m.aJour ? 'Actif' : 'Inactif'} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+
+          {/* Activités récentes */}
+          {report.activites && report.activites.length > 0 && (
+            <div style={{ background: '#172040', border: '1px solid #243060', borderRadius: 16, overflow: 'hidden' }}>
+              <div style={{ padding: '14px 18px', borderBottom: '1px solid #243060' }}>
+                <span style={{ fontWeight: 600, fontSize: 15 }}>Activités & participations récentes</span>
+              </div>
+              <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {report.activites.slice(0, 6).map(a => (
+                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: '#111B30', borderRadius: 10 }}>
+                    <span style={{ fontSize: 12, color: '#8A9AC8', minWidth: 90 }}>{a.date}</span>
+                    <span style={{ fontWeight: 500, fontSize: 13, flex: 1 }}>{a.nom}</span>
+                    <span style={{ fontSize: 11, color: '#8A9AC8' }}>{a.type}</span>
+                    {a.montant_cotisation > 0 && <span style={{ fontSize: 11, color: '#FF8C4A' }}>{fmt(a.montant_cotisation)} F</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1371,7 +1621,7 @@ export default function App() {
   const handleLogout = async () => { await supabase.auth.signOut(); setUser(null); setMembre(null); setPage('dashboard') }
   const goTo         = p => { setPage(p); setSide(false) }
 
-  const TITLES = { dashboard: 'Tableau de bord', members: 'Membres', payments: 'Contributions', finances: 'Caisses & Retraits', declare: 'Declarer un paiement', myaccount: 'Mon compte', report: 'Rapport mensuel' }
+  const TITLES = { dashboard: 'Tableau de bord', members: 'Membres', payments: 'Contributions', finances: 'Caisses & Retraits', activites: 'Activités & Calendrier', declare: 'Déclarer un paiement', myaccount: 'Mon compte', report: 'Rapport mensuel' }
 
   if (checking) return (
     <div style={{ minHeight: '100vh', background: '#0D1420', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1390,6 +1640,7 @@ export default function App() {
     members:   <Members />,
     payments:  <Contributions />,
     finances:  <Finances />,
+    activites: <Activites />,
     declare:   <Declare membreId={membre ? membre.id : null} />,
     myaccount: <MyAccount membre={membre} />,
     report:    <Report />,
